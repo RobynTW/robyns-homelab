@@ -1,0 +1,30 @@
+# Secrets and credentials
+.env
+*.secret
+*.secrets
+*.key
+*.pem
+*.p12
+*.pfx
+credentials*
+secrets/
+.env*/
+
+# Cloudflare / ACME credentials
+cloudflare.ini
+
+# SSH private keys
+id_rsa
+id_ed25519
+*.pub
+
+# Temporary / generated files
+*.tmp
+*.swp
+*.log
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
