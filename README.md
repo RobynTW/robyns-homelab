@@ -4,35 +4,15 @@ A personal homelab focused on **Linux, networking, virtualisation, self-hosting,
 
 ## Architecture
 
-**Dell OptiPlex 3060**
+![Robyn's Homelab Network Diagram](diagrams/network.png)
 
-* Proxmox
-* Pi-hole + Unbound
-* NetBird
-* Jellyfin
-* Nginx
-* Beszel
-* Uptime Kuma
+The diagram shows the current homelab infrastructure and near-term planned additions.
 
-**Dell OptiPlex 9020** *(planned)*
-
-* NAS / NFS storage
-* Pterodactyl
-* Game servers
-
-**Future**
-
-* Media automation stack
-* Managed switch
-* pfSense
-* VLAN segmentation
-* Homarr
+The editable diagrams.net source is available at [`diagrams/network.drawio`](diagrams/network.drawio).
 
 ## Documentation
 
 Detailed configuration and architecture documentation is available in [`docs/`](docs/).
-
-The network architecture diagram is maintained in [`diagrams/`](diagrams/).
 
 ## Status
 
