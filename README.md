@@ -1,27 +1,50 @@
 # Robyn's Homelab
 
-A personal homelab focused on **Linux, networking, virtualisation, self-hosting, and learning**.
+A personal homelab built around **Linux, networking, virtualisation, self-hosting, and learning**.
+
+The goal of this project is to build and document a practical home infrastructure environment from the ground up, while keeping the configuration and architecture easy to understand and reproduce.
+
+## Project Status
+
+🟢 **Core infrastructure deployed**
+
+🟡 **9020 / NAS infrastructure in progress**
+
+🔵 **Media stack and Pterodactyl planned**
 
 ## Architecture
 
-![Robyn's Homelab Network Diagram](diagrams/network.png)
+![Robyn's Homelab network diagram](diagrams/network.png)
 
-The diagram shows the current homelab infrastructure and near-term planned additions.
+The diagram shows the current infrastructure and planned near-term additions.
 
-The editable diagrams.net source is available at [`diagrams/network.drawio`](diagrams/network.drawio).
+## Services
+
+The homelab currently provides:
+
+| Service         | Purpose                     |
+| --------------- | --------------------------- |
+| **Pi-hole**     | DNS filtering and local DNS |
+| **Unbound**     | Recursive DNS resolution    |
+| **Nginx**       | Reverse proxy and HTTPS     |
+| **Certbot**     | TLS certificate management  |
+| **NetBird**     | Private remote access       |
+| **Jellyfin**    | Media streaming             |
+| **Beszel**      | System monitoring           |
+| **Uptime Kuma** | Service monitoring          |
+
+Additional services are planned as the infrastructure develops.
 
 ## Documentation
 
-Detailed configuration and architecture documentation is available in [`docs/`](docs/).
+The `docs/` directory contains detailed documentation covering the hardware, network architecture, Proxmox configuration, individual services, and supporting infrastructure.
 
-## Status
+Start with the [documentation overview](docs/00-overview.md).
 
-🟢 **Infrastructure deployed**
+The editable [network diagram](diagrams/network.drawio) is also included alongside the exported PNG.
 
-🟡 **9020 / NAS in progress**
-
-🔵 **Media stack, Pterodactyl & network segmentation planned**
+This repository is primarily a **technical record and learning project** rather than a ready-to-deploy homelab configuration. The documentation reflects the actual environment and is updated as the infrastructure evolves.
 
 ---
 
-> A personal project for learning, experimentation, and building a practical self-hosted environment.
+> Built for learning, experimentation, and eventually having somewhere to host all the things.
