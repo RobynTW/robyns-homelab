@@ -2,93 +2,115 @@
 
 ## Overview
 
-Unbound is the recursive DNS resolver used by the homelab.
+Unbound provides recursive DNS resolution for the homelab.
 
-It runs inside **CT 100** alongside Pi-hole, Nginx and ddclient:
+It runs inside **CT 100** on the Dell OptiPlex 3060 alongside Pi-hole and ddclient.
 
 ```text
 VMID:     100
-Hostname: pihole-nginx
+Hostname: pihole
 IP:       192.168.20.99
 ```
 
-Unbound is responsible for:
+Unbound is used as the upstream DNS resolver for Pi-hole.
 
-* Recursive DNS resolution
-* DNSSEC validation
-* Resolving external DNS queries without relying on a third-party recursive resolver
-* Providing the upstream DNS service for Pi-hole
-
-Pi-hole remains the client-facing DNS server, while Unbound performs the recursive resolution.
+Rather than forwarding DNS requests to a conventional third-party resolver such as Google or Cloudflare, Unbound performs recursive DNS resolution directly against the DNS hierarchy.
 
 ---
 
 ## DNS Architecture
 
-The complete DNS architecture is:
+The homelab uses a two-stage DNS architecture:
 
 ```text
 Client
-   │
-   │ DNS :53
-   ▼
+  │
+  │ DNS :53
+  ▼
 Pi-hole
 192.168.20.99
-   │
-   │ DNS :5335
-   ▼
+  │
+  │ 127.0.0.1:5335
+  ▼
 Unbound
-127.0.0.1:5335
-   │
-   │ Recursive queries
-   ▼
-DNS hierarchy
+  │
+  │ Recursive resolution
+  ▼
+Root DNS servers
+  │
+  ▼
+TLD servers
+  │
+  ▼
+Authoritative DNS servers
 ```
 
-The two services have deliberately separate responsibilities.
-
-### Pi-hole
-
-Pi-hole provides:
+Pi-hole is responsible for:
 
 * Client-facing DNS
-* Ad and tracker blocking
+* DNS filtering
 * Local DNS records
-* Query logging and statistics
-* Upstream forwarding
+* Query statistics
 
-### Unbound
+Unbound is responsible for:
 
-Unbound provides:
-
-* Recursive resolution
+* Recursive DNS resolution
 * DNSSEC validation
-* DNS caching
-* DNS hardening
+* Resolving external domains without relying on a third-party recursive resolver
 
 ---
 
-## Why Unbound Is Bound to Port 5335
+## Installation
 
-Standard DNS uses port `53`.
+Unbound is installed inside Debian 12 **CT 100**.
 
-Pi-hole FTL already owns port 53, so Unbound cannot also bind to the same address and port.
+The container also hosts:
 
-Unbound therefore listens only on:
+* Pi-hole
+* ddclient
+
+Nginx and Certbot were previously hosted in this container but have since been moved to the dedicated **CT 106** Nginx container.
+
+The current infrastructure separation is:
+
+```text
+CT 100 — pihole
+├── Pi-hole
+├── Unbound
+└── ddclient
+
+CT 106 — nginx
+├── Nginx
+└── Certbot
+```
+
+---
+
+## Network Configuration
+
+Unbound deliberately does not listen on the normal DNS port.
+
+It listens only on the loopback interface:
 
 ```text
 127.0.0.1:5335
 ```
 
-This has two benefits:
+This means Unbound is only accessible from the Pi-hole container itself.
 
-1. Pi-hole remains the only client-facing DNS service.
-2. Unbound cannot be directly queried by other devices on the LAN.
-
-The resulting arrangement is:
+The relevant configuration is:
 
 ```text
-LAN clients
+interface: 127.0.0.1
+port: 5335
+```
+
+Unbound therefore cannot be queried directly by other devices on the LAN.
+
+The DNS flow is:
+
+```text
+LAN client
     │
     ▼
 Pi-hole :53
@@ -97,27 +119,17 @@ Pi-hole :53
 Unbound 127.0.0.1:5335
 ```
 
----
-
-## Installation
-
-Unbound was installed inside CT 100.
-
-The configuration is stored under:
-
-```text
-/etc/unbound/
-```
-
-The primary homelab-specific configuration is:
-
-```text
-/etc/unbound/unbound.conf.d/pi-hole.conf
-```
+This provides a clear security boundary between the client-facing DNS service and the recursive resolver.
 
 ---
 
 ## Configuration
+
+The primary Unbound configuration used by the homelab is:
+
+```text
+/etc/unbound/unbound.conf.d/pi-hole.conf
+```
 
 The current configuration is:
 
@@ -160,43 +172,29 @@ server:
 
 ---
 
-## Configuration Explanation
+## Configuration Options
 
-### `verbosity`
-
-```text
-verbosity: 0
-```
-
-Keeps normal Unbound logging relatively quiet.
-
-Higher verbosity levels can be temporarily enabled during troubleshooting.
-
----
-
-### `interface`
+### Loopback interface
 
 ```text
 interface: 127.0.0.1
 ```
 
-Restricts Unbound to the local loopback interface.
+Restricts Unbound to the local machine.
 
-Only applications running inside CT 100 can directly access the resolver.
-
-This is intentional because Pi-hole is the client-facing DNS service.
+This prevents other devices from directly accessing the recursive resolver.
 
 ---
 
-### `port`
+### Non-standard DNS port
 
 ```text
 port: 5335
 ```
 
-Moves Unbound away from the standard DNS port.
+Unbound uses port `5335` rather than port `53`.
 
-Pi-hole continues listening on port 53.
+Port 53 is reserved for Pi-hole, which acts as the client-facing DNS service.
 
 ---
 
@@ -211,168 +209,165 @@ do-ip6: yes
 prefer-ip6: no
 ```
 
-IPv4, UDP and TCP DNS queries are supported.
+IPv4 and IPv6 DNS transport are enabled.
 
-IPv6 is enabled, but IPv6 is not preferred when resolving upstream DNS information.
+IPv6 is supported but not preferred for upstream resolution.
+
+Both UDP and TCP DNS transport are enabled.
 
 ---
 
-## DNS Hardening
-
-The configuration includes:
+### DNS hardening
 
 ```text
 harden-glue: yes
 harden-dnssec-stripped: yes
 ```
 
-These settings provide additional protection during DNS resolution.
+These options enable additional protections during DNS resolution.
 
-DNSSEC validation is particularly important because Unbound is responsible for validating signed DNS responses.
+In particular, `harden-dnssec-stripped` helps prevent DNSSEC validation from being bypassed when DNSSEC information has been removed from a response.
 
 ---
 
-## EDNS Buffer Size
+### EDNS buffer size
 
 ```text
 edns-buffer-size: 1232
 ```
 
-The EDNS buffer size is set to 1232 bytes.
+The EDNS buffer size is limited to 1232 bytes.
 
-This is a commonly used conservative value that helps reduce problems associated with fragmented DNS responses.
+This is a commonly used conservative value intended to reduce problems caused by fragmented DNS responses.
 
 ---
 
-## Prefetching
+### Prefetching
 
 ```text
 prefetch: yes
 ```
 
-Allows Unbound to refresh frequently used cached records before they expire.
+Unbound can refresh cached records before they expire when they are being actively queried.
 
-This can reduce latency for repeatedly requested DNS records.
+This can improve response times for frequently accessed domains.
 
 ---
 
-## Resource Configuration
-
-The current configuration uses:
+### Threading
 
 ```text
 num-threads: 1
+```
+
+Unbound currently uses a single worker thread.
+
+This is appropriate for the relatively small homelab workload.
+
+---
+
+### Socket receive buffer
+
+```text
 so-rcvbuf: 1m
 ```
 
-The homelab does not currently generate enough DNS traffic to require multiple resolver threads.
-
-The configuration therefore prioritises simplicity and low resource usage.
+Sets the UDP socket receive buffer to approximately 1 MiB.
 
 ---
 
 ## Private Address Protection
 
-Unbound is configured to recognise several private and reserved address ranges.
+The configuration contains several `private-address` entries.
 
-These include:
+These identify address ranges that should be treated as private or reserved and prevent inappropriate resolution of these addresses through external DNS.
+
+RFC1918 private IPv4 ranges are included:
 
 ```text
 192.168.0.0/16
-10.0.0.0/8
 172.16.0.0/12
+10.0.0.0/8
+```
+
+IPv6 local ranges are also included:
+
+```text
 fd00::/8
 fe80::/10
 ```
 
-as well as several reserved documentation and special-purpose networks.
+Other reserved documentation and special-use ranges are included as well:
 
-This helps prevent inappropriate resolution of private or reserved addresses through external DNS.
+```text
+169.254.0.0/16
+192.0.2.0/24
+198.51.100.0/24
+203.0.113.0/24
+255.255.255.255/32
+2001:db8::/32
+```
+
+These settings provide additional protection against resolving inappropriate private or reserved addresses from external DNS.
 
 ---
 
-## Pi-hole Upstream Configuration
+## Pi-hole Integration
 
-Pi-hole forwards external DNS requests to Unbound.
+Pi-hole is configured to use Unbound as its upstream resolver.
 
-The configured upstream is:
+The configured Pi-hole upstream is:
 
 ```text
 127.0.0.1#5335
 ```
 
-It was configured using:
+The Pi-hole configuration was set using:
 
 ```bash
 pihole-FTL --config dns.upstreams '[ "127.0.0.1#5335" ]'
 ```
 
-This creates the following chain:
-
-```text
-Client
-   │
-   ▼
-Pi-hole :53
-   │
-   ▼
-Unbound :5335
-   │
-   ▼
-DNS hierarchy
-```
-
----
-
-## Recursive DNS
-
-Unlike a conventional configuration that forwards queries to a resolver such as Google or Cloudflare, Unbound performs recursive resolution.
-
-Conceptually:
+The resulting DNS flow is:
 
 ```text
 Client
   │
+  │ :53
   ▼
 Pi-hole
   │
+  │ :5335
   ▼
 Unbound
   │
-  ├── Root servers
-  │
-  ├── TLD servers
-  │
-  └── Authoritative servers
+  ▼
+DNS hierarchy
 ```
 
-This means the homelab's recursive DNS resolver obtains answers through the DNS hierarchy rather than simply forwarding every query to another recursive DNS provider.
+Pi-hole therefore remains the only DNS server that clients need to know about.
 
 ---
 
 ## DNSSEC
 
-DNSSEC allows DNS responses to be cryptographically validated.
+Unbound performs DNSSEC validation for domains that support DNSSEC.
 
-Unbound performs DNSSEC validation before returning validated answers to Pi-hole.
-
-A valid DNSSEC response can be tested with:
+A successful DNSSEC validation can be tested with:
 
 ```bash
 dig +ad dnssec.works @127.0.0.1 -p 5335
 ```
 
-The `ad` flag indicates that the response has been authenticated through DNSSEC validation.
+The response should contain:
 
-The test performed during setup returned a valid DNSSEC response.
+```text
+ad
+```
 
----
+The `ad` flag indicates that the response data was authenticated according to DNSSEC validation.
 
-## Testing DNSSEC Failure
-
-A deliberately broken DNSSEC domain can be used to confirm that validation failures are rejected.
-
-The test used was:
+A deliberately broken DNSSEC domain can be used to verify that invalid DNSSEC responses are rejected:
 
 ```bash
 dig fail01.dnssec.works @127.0.0.1 -p 5335
@@ -384,145 +379,43 @@ The expected result is:
 SERVFAIL
 ```
 
-This is an important test because merely receiving a DNS response does not prove that DNSSEC validation is functioning correctly.
-
-The successful result demonstrated that:
-
-* Valid DNSSEC responses are accepted.
-* Invalid DNSSEC responses are rejected.
+This confirms that Unbound is not simply returning an invalid DNSSEC response.
 
 ---
 
-## Testing Unbound Directly
+## Testing
 
-To test Unbound without involving Pi-hole:
+### Validate Configuration
 
-```bash
-dig pi-hole.net @127.0.0.1 -p 5335
-```
-
-This directly queries:
-
-```text
-127.0.0.1:5335
-```
-
-A successful response confirms that Unbound itself can perform recursive DNS resolution.
-
----
-
-## Testing the Complete DNS Chain
-
-To test Pi-hole and Unbound together:
-
-```bash
-dig en.wikipedia.org @127.0.0.1
-```
-
-This sends the query to Pi-hole on port 53.
-
-The expected path is:
-
-```text
-dig
- │
- ▼
-Pi-hole :53
- │
- ▼
-Unbound :5335
- │
- ▼
-DNS hierarchy
- │
- ▼
-Response
-```
-
-This test confirms that the two DNS services work together rather than merely testing Unbound independently.
-
----
-
-## Initial Port Conflict
-
-During initial setup, Unbound failed to start because it attempted to bind to the standard DNS port and IPv6 loopback address.
-
-Pi-hole FTL was already using port 53.
-
-The conflict was effectively:
-
-```text
-Pi-hole FTL
-127.0.0.1:53
-     ▲
-     │
-     │ conflict
-     │
-Unbound
-::1:53
-```
-
-The configuration was changed so that Unbound uses:
-
-```text
-127.0.0.1:5335
-```
-
-After the configuration was corrected, `unbound-checkconf` reported no configuration errors and Unbound started successfully.
-
-This is an important example of why services providing the same protocol should have clearly defined listening addresses and ports.
-
----
-
-## Configuration Validation
-
-Before restarting or troubleshooting Unbound, the configuration can be checked with:
+Before restarting or reloading Unbound after configuration changes, validate the configuration:
 
 ```bash
 unbound-checkconf
 ```
 
-This validates the Unbound configuration files.
-
-A successful check should produce no configuration errors.
-
-This is preferable to restarting a service with an unverified configuration.
+A successful check should report no configuration errors.
 
 ---
 
-## Service Management
+### Check Service Status
 
-Unbound is managed through systemd.
-
-Check its status:
+Check whether Unbound is running:
 
 ```bash
 systemctl status unbound
 ```
 
-Restart it after configuration changes:
+A healthy installation should show:
 
-```bash
-systemctl restart unbound
-```
-
-Enable it at boot:
-
-```bash
-systemctl enable unbound
-```
-
-Check whether it is enabled:
-
-```bash
-systemctl is-enabled unbound
+```text
+active (running)
 ```
 
 ---
 
-## Port Verification
+### Check Listening Port
 
-To determine whether Unbound is listening:
+Verify that Unbound is listening on its configured loopback address and port:
 
 ```bash
 ss -tulpn | grep ':5335'
@@ -534,43 +427,117 @@ The expected listener is:
 127.0.0.1:5335
 ```
 
-Port 53 should remain owned by Pi-hole rather than Unbound.
+Unbound should not be listening on the LAN-facing address.
 
-This can be checked with:
+---
+
+### Test Recursive Resolution
+
+Query Unbound directly:
 
 ```bash
-ss -tulpn | grep ':53'
+dig pi-hole.net @127.0.0.1 -p 5335
 ```
+
+A successful response confirms that Unbound can perform recursive DNS resolution.
+
+---
+
+### Test DNSSEC
+
+Valid DNSSEC:
+
+```bash
+dig +ad dnssec.works @127.0.0.1 -p 5335
+```
+
+Expected:
+
+```text
+NOERROR
+```
+
+with the `ad` flag present.
+
+Invalid DNSSEC:
+
+```bash
+dig fail01.dnssec.works @127.0.0.1 -p 5335
+```
+
+Expected:
+
+```text
+SERVFAIL
+```
+
+---
+
+### Test Pi-hole → Unbound
+
+To test the complete local DNS chain:
+
+```bash
+dig en.wikipedia.org @127.0.0.1
+```
+
+This sends the query to Pi-hole on port 53.
+
+Pi-hole should then forward the request to:
+
+```text
+127.0.0.1:5335
+```
+
+where Unbound performs the recursive lookup.
+
+A successful response confirms that the Pi-hole → Unbound integration is functioning.
 
 ---
 
 ## Troubleshooting
 
-### Unbound will not start
+### Unbound is not running
 
-First validate the configuration:
-
-```bash
-unbound-checkconf
-```
-
-If the configuration is valid, check the service:
+Check the service:
 
 ```bash
 systemctl status unbound
 ```
 
-Then inspect the listening ports:
+If the service has failed, inspect the recent logs:
 
 ```bash
-ss -tulpn | grep -E ':53|:5335'
+journalctl -u unbound -n 50 --no-pager
 ```
 
-This can reveal whether another service has already claimed the required port.
+Validate the configuration:
+
+```bash
+unbound-checkconf
+```
 
 ---
 
-### Unbound starts but DNS fails
+### Port 5335 is unavailable
+
+Check whether anything is listening on the port:
+
+```bash
+ss -tulpn | grep ':5335'
+```
+
+The expected listener is:
+
+```text
+127.0.0.1:5335
+```
+
+If another process has claimed the port, identify it before making configuration changes.
+
+---
+
+### Unbound cannot resolve domains
 
 Test Unbound directly:
 
@@ -578,101 +545,183 @@ Test Unbound directly:
 dig pi-hole.net @127.0.0.1 -p 5335
 ```
 
-If this fails, the problem is within Unbound or its ability to reach upstream authoritative DNS infrastructure.
+If this fails, the problem is within Unbound or its upstream recursive communication rather than Pi-hole.
 
-If this succeeds, test Pi-hole:
+Check:
 
 ```bash
-dig pi-hole.net @127.0.0.1
+systemctl status unbound
+unbound-checkconf
+journalctl -u unbound -n 50 --no-pager
 ```
-
-This separates an Unbound problem from a Pi-hole upstream configuration problem.
 
 ---
 
-### DNSSEC appears not to work
+### Pi-hole cannot reach Unbound
 
-Test a known valid DNSSEC domain:
-
-```bash
-dig +ad dnssec.works @127.0.0.1 -p 5335
-```
-
-Then test a deliberately broken DNSSEC domain:
+First test Unbound directly:
 
 ```bash
-dig fail01.dnssec.works @127.0.0.1 -p 5335
+dig pi-hole.net @127.0.0.1 -p 5335
 ```
 
-Expected behaviour:
+If this succeeds, check Pi-hole's configured upstream:
+
+```bash
+pihole-FTL --config dns.upstreams
+```
+
+It should reference:
 
 ```text
-Valid DNSSEC → successful response with AD flag
-Broken DNSSEC → SERVFAIL
+127.0.0.1#5335
+```
+
+Then test Pi-hole:
+
+```bash
+dig en.wikipedia.org @127.0.0.1
+```
+
+---
+
+## Security Considerations
+
+Unbound is intentionally bound only to:
+
+```text
+127.0.0.1:5335
+```
+
+It is therefore not directly exposed to the LAN or Internet.
+
+Clients communicate with Pi-hole instead:
+
+```text
+Client → Pi-hole → Unbound
+```
+
+This prevents the recursive resolver from becoming an independently accessible DNS service.
+
+DNSSEC validation provides additional protection against forged or invalid DNS responses for signed domains.
+
+The Unbound configuration should not be changed without first validating it with:
+
+```bash
+unbound-checkconf
 ```
 
 ---
 
 ## Key Commands
 
-| Command                                 | Purpose                              |
-| --------------------------------------- | ------------------------------------ |
-| `unbound-checkconf`                     | Validate Unbound configuration       |
-| `systemctl status unbound`              | Check Unbound service state          |
-| `systemctl restart unbound`             | Restart Unbound                      |
-| `systemctl enable unbound`              | Enable Unbound at boot               |
-| `systemctl is-enabled unbound`          | Check whether Unbound starts at boot |
-| `ss -tulpn`                             | Display listening network sockets    |
-| `dig example.com @127.0.0.1 -p 5335`    | Query Unbound directly               |
-| `dig example.com @127.0.0.1`            | Query Pi-hole                        |
-| `dig +ad ...`                           | Display DNSSEC authentication status |
-| `pihole-FTL --config dns.upstreams ...` | Configure Pi-hole's upstream DNS     |
+| Command                                      | Purpose                                     |
+| -------------------------------------------- | ------------------------------------------- |
+| `unbound-checkconf`                          | Validate the Unbound configuration          |
+| `systemctl status unbound`                   | Check Unbound's service state               |
+| `systemctl restart unbound`                  | Restart Unbound after configuration changes |
+| `journalctl -u unbound -n 50 --no-pager`     | View recent Unbound logs                    |
+| `ss -tulpn \| grep ':5335'`                  | Check the Unbound listening socket          |
+| `dig example.com @127.0.0.1 -p 5335`         | Query Unbound directly                      |
+| `dig +ad dnssec.works @127.0.0.1 -p 5335`    | Test successful DNSSEC validation           |
+| `dig fail01.dnssec.works @127.0.0.1 -p 5335` | Test rejection of invalid DNSSEC            |
+| `dig en.wikipedia.org @127.0.0.1`            | Test Pi-hole → Unbound integration          |
 
-### Understanding the important `dig` options
-
-```text
-@127.0.0.1
-```
-
-Specifies the DNS server to query.
+### Important `dig` options
 
 ```text
--p 5335
+@server
 ```
 
-Specifies Unbound's non-standard DNS port.
+Specifies the DNS server that receives the query.
+
+For example:
+
+```bash
+dig example.com @127.0.0.1
+```
+
+queries the local DNS service.
+
+```text
+-p port
+```
+
+Specifies a non-standard DNS port.
+
+For example:
+
+```bash
+dig example.com @127.0.0.1 -p 5335
+```
+
+queries Unbound directly.
 
 ```text
 +ad
 ```
 
-Requests the authenticated-data status to be displayed.
+Requests that the DNSSEC authenticated-data status be displayed.
 
-```text
-+short
+For example:
+
+```bash
+dig +ad dnssec.works @127.0.0.1 -p 5335
 ```
 
-Displays a simplified response.
-
-These options make `dig` particularly useful for testing individual layers of the DNS architecture.
+can be used to verify DNSSEC validation.
 
 ---
 
-## Security Considerations
+## Current Architecture
 
-Unbound is not exposed directly to the LAN.
-
-It listens only on:
+The final DNS architecture is:
 
 ```text
-127.0.0.1:5335
+                         ┌─────────────────────┐
+                         │       Clients       │
+                         └──────────┬──────────┘
+                                    │
+                                    │ DNS :53
+                                    ▼
+                         ┌─────────────────────┐
+                         │       Pi-hole      │
+                         │      CT 100         │
+                         │   192.168.20.99     │
+                         └──────────┬──────────┘
+                                    │
+                                    │ 127.0.0.1:5335
+                                    ▼
+                         ┌─────────────────────┐
+                         │       Unbound      │
+                         │      CT 100         │
+                         │   Recursive DNS     │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                             DNS hierarchy
 ```
 
-Pi-hole is the only DNS service exposed to clients on the homelab network.
+Remote NetBird clients use the same Pi-hole endpoint:
 
-This reduces the attack surface and prevents clients from bypassing Pi-hole's DNS filtering and local records.
+```text
+Remote device
+      │
+      │ NetBird
+      ▼
+CT 101 — NetBird
+      │
+      ▼
+192.168.20.99:53
+      │
+      ▼
+Pi-hole
+      │
+      ▼
+Unbound
+```
 
-Unbound's DNSSEC validation provides additional protection against forged or invalid DNS responses.
+This provides a consistent DNS architecture for both local and authorised remote clients.
 
 ---
 
@@ -681,9 +730,9 @@ Unbound's DNSSEC validation provides additional protection against forged or inv
 This document should be updated when:
 
 * Unbound configuration changes
-* DNSSEC configuration changes
-* DNS architecture changes
-* Additional DNS hardening is introduced
-* Pi-hole is moved to another host
-* Unbound is moved to a dedicated container
-* DNS performance requirements increase
+* DNSSEC behaviour changes
+* The recursive resolver is moved to another container or host
+* Pi-hole's upstream DNS configuration changes
+* Additional DNS security measures are implemented
+* IPv6 DNS behaviour is changed
+* The homelab DNS architecture changes
