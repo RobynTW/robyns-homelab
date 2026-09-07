@@ -8,7 +8,7 @@ It runs inside **CT 100** on the Dell OptiPlex 3060:
 
 ```text
 VMID:     100
-Hostname: pihole-nginx
+Hostname: pihole
 IP:       192.168.20.99
 ```
 
@@ -54,17 +54,32 @@ Unbound is not directly exposed to the LAN.
 
 ---
 
-## Installation
+## Container Services
 
-Pi-hole is installed inside the Debian 12 CT 100 container.
+CT 100 is dedicated to DNS-related infrastructure.
 
-The container also hosts:
+It hosts:
 
-* Nginx
+* Pi-hole
 * Unbound
 * ddclient
 
-These services were grouped together because they provide closely related network infrastructure.
+Nginx and Certbot were previously hosted in this container but have been moved to the dedicated **CT 106** Nginx container.
+
+The final service separation is:
+
+```text
+CT 100 — pihole
+├── Pi-hole
+├── Unbound
+└── ddclient
+
+CT 106 — nginx
+├── Nginx
+└── Certbot
+```
+
+This separates DNS infrastructure from the homelab's reverse-proxy and certificate-management infrastructure.
 
 ---
 
@@ -118,7 +133,7 @@ Unbound
 
 Pi-hole's web interface originally used the standard HTTP/HTTPS ports.
 
-Because Nginx is used as the homelab's central reverse proxy, Pi-hole's own web server was moved to port `8080`.
+Because Nginx is the homelab's central reverse proxy and now runs in a separate container, Pi-hole's own web server uses port `8080`.
 
 The relevant configuration is:
 
@@ -132,7 +147,7 @@ Pi-hole therefore provides its local web interface at:
 http://192.168.20.99:8080
 ```
 
-Nginx handles the public-facing HTTPS endpoint:
+Nginx provides the HTTPS endpoint from **CT 106**:
 
 ```text
 https://pihole.robynshomelab.dev
@@ -146,14 +161,15 @@ Client
   │ HTTPS :443
   ▼
 Nginx
-192.168.20.99
+192.168.20.94
   │
   │ HTTP :8080
   ▼
 Pi-hole
+192.168.20.99
 ```
 
-This prevents Pi-hole's web server from competing with Nginx for ports 80 and 443.
+This keeps Pi-hole's web server separate from Nginx's ports 80 and 443.
 
 ---
 
@@ -165,10 +181,10 @@ Current records include:
 
 | Hostname                     |         Address | Purpose                    |
 | ---------------------------- | --------------: | -------------------------- |
-| `jellyfin.robynshomelab.dev` | `192.168.20.99` | Jellyfin HTTPS endpoint    |
-| `status.robynshomelab.dev`   | `192.168.20.99` | Uptime Kuma HTTPS endpoint |
-| `beszel.robynshomelab.dev`   | `192.168.20.99` | Beszel HTTPS endpoint      |
-| `pihole.robynshomelab.dev`   | `192.168.20.99` | Pi-hole HTTPS endpoint     |
+| `jellyfin.robynshomelab.dev` | `192.168.20.94` | Jellyfin HTTPS endpoint    |
+| `status.robynshomelab.dev`   | `192.168.20.94` | Uptime Kuma HTTPS endpoint |
+| `beszel.robynshomelab.dev`   | `192.168.20.94` | Beszel HTTPS endpoint      |
+| `pihole.robynshomelab.dev`   | `192.168.20.94` | Pi-hole HTTPS endpoint     |
 
 These records intentionally point to Nginx rather than directly to the backend containers.
 
@@ -178,7 +194,7 @@ For example:
 jellyfin.robynshomelab.dev
         │
         ▼
-192.168.20.99
+192.168.20.94
      Nginx
         │
         ▼
@@ -228,22 +244,33 @@ Pi-hole
 jellyfin.robynshomelab.dev
   │
   ▼
-192.168.20.99
+192.168.20.94
+  │
+  ▼
+Nginx
+  │
+  ▼
+Jellyfin
 ```
 
 ---
 
 ## Pi-hole and Nginx
 
-Pi-hole and Nginx run in the same container but use different ports.
+Pi-hole and Nginx now run in separate containers.
 
 ```text
+CT 100 — pihole
+────────────────
 Pi-hole DNS
 :53
 
 Pi-hole Web
 :8080
 
+
+CT 106 — nginx
+────────────────
 Nginx HTTP
 :80
 
@@ -251,7 +278,9 @@ Nginx HTTPS
 :443
 ```
 
-This separation allows Nginx to provide the central HTTPS endpoint while Pi-hole continues providing DNS.
+This separation prevents the DNS container from also being responsible for reverse-proxy and certificate-management duties.
+
+Nginx proxies the public HTTPS hostnames to their respective internal services.
 
 ---
 
@@ -361,7 +390,7 @@ This verifies that Pi-hole is returning the internal DNS record.
 The expected address is:
 
 ```text
-192.168.20.99
+192.168.20.94
 ```
 
 The response should also contain the `aa` flag, indicating that the answer is authoritative.
@@ -486,6 +515,47 @@ systemctl restart pihole-FTL
 
 ---
 
+### HTTPS endpoint unavailable
+
+If the local Pi-hole web interface works but:
+
+```text
+https://pihole.robynshomelab.dev
+```
+
+does not, check the dedicated Nginx container rather than Pi-hole.
+
+Nginx is located at:
+
+```text
+CT 106
+192.168.20.94
+```
+
+The expected path is:
+
+```text
+Client
+  │
+  ▼
+Pi-hole DNS
+192.168.20.99
+  │
+  ▼
+192.168.20.94
+  │
+  ▼
+Nginx :443
+  │
+  ▼
+192.168.20.99:8080
+  │
+  ▼
+Pi-hole
+```
+
+---
+
 ## Key Commands
 
 | Command                              | Purpose                                  |
@@ -562,6 +632,15 @@ The public Cloudflare DNS zone does not contain the internal `192.168.20.x` serv
 Remote access to Pi-hole is provided through the private NetBird network.
 
 The Cloudflare API credentials used for related infrastructure are stored outside the Git repository and must never be committed.
+
+The Cloudflare ACME credential used by Certbot is stored only on the dedicated Nginx container:
+
+```text
+CT 106
+/root/.secrets/certbot/cloudflare.ini
+```
+
+It is root-owned with restrictive permissions and is excluded from Git.
 
 ---
 
