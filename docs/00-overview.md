@@ -71,7 +71,7 @@ Pi-hole remains responsible for local DNS records and DNS filtering, while Unbou
 
 ---
 
-HTTPS and Reverse Proxy
+## HTTPS and Reverse Proxy
 
 Nginx runs alongside Pi-hole and acts as the central HTTPS reverse proxy.
 
