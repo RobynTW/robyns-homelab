@@ -1,595 +1,203 @@
-# NetBird Private Network Access
+# NetBird
 
-## Overview
+NetBird provides private remote access to the homelab without exposing internal services to the public internet.
 
-NetBird provides private remote access to the homelab without exposing internal services directly to the public internet.
+## Current deployment
 
-NetBird currently runs in a dedicated Proxmox LXC:
+NetBird is deployed on **CT101** on the Dell OptiPlex 3060 Proxmox host.
 
-```text
-Proxmox pve-1
-└── CT101
-    ├── Hostname: netbird
-    ├── LAN IP: 192.168.20.97
-    └── NetBird IP: 100.113.51.59
-```
+| Setting | Value |
+| --- | --- |
+| Container | CT101 |
+| Hostname | `netbird` |
+| OS | Debian GNU/Linux 12 |
+| LAN IP | `192.168.20.97` |
+| NetBird IP | `100.113.51.59` |
+| NetBird IPv6 | `fda0:124:5d3a:d4ae:ed2e:853c:913a:4d70` |
+| NetBird version | `0.78.1` |
+| Interface | Kernel / WireGuard |
+| Management | `https://api.netbird.io:443` |
+| Signal | `https://signal.netbird.io:443` |
+| WireGuard port | `51820` |
 
-The container acts as a **routing peer** for the homelab.
+CT101 acts as the dedicated NetBird routing peer for accessing selected services on the home LAN.
 
-Its current purpose is deliberately limited to:
+## Purpose
 
-* private access to homelab services
-* routing traffic between NetBird clients and the LAN
-* providing Pi-hole DNS to NetBird clients
+NetBird is used to provide private remote access to services that should not be exposed directly to the internet.
 
-It is **not** currently used for public service or game-server exposure.
+Current remote-access flow:
 
-## Network Details
+    iPhone / remote device
+            │
+            │ NetBird
+            ▼
+          CT101
+        192.168.20.97
+            │
+            ├──► Pi-hole
+            │    192.168.20.99
+            │
+            └──► Nginx
+                 192.168.20.94
 
-| Component       | Address            |
-| --------------- | ------------------ |
-| NetBird LXC     | `192.168.20.97`    |
-| NetBird address | `100.113.51.59/16` |
-| Pi-hole         | `192.168.20.99`    |
-| Proxmox         | `192.168.20.100`   |
-| Jellyfin        | `192.168.20.98`    |
-| Nginx           | `192.168.20.94`    |
+No router port forwarding is required for these services.
 
-The NetBird container is connected to the normal homelab LAN and participates in the NetBird overlay network.
+## Network routes
 
-## NetBird Addressing
+CT101 currently advertises the following NetBird routes:
 
-NetBird assigns overlay addresses from:
+| Route | Destination |
+| --- | --- |
+| `192.168.20.94/32` | Nginx reverse proxy |
+| `192.168.20.99/32` | Pi-hole |
 
-```text
-100.113.0.0/16
-```
+Only the required hosts are routed through CT101 rather than exposing the entire `192.168.20.0/24` LAN.
 
-The current NetBird address of CT101 is:
-
-```text
-100.113.51.59
-```
-
-The iPhone currently has:
-
-```text
-100.113.124.99
-```
-
-These addresses are separate from the physical LAN addresses in `192.168.20.0/24`.
-
-Conceptually:
-
-```text
-                 NetBird overlay
-             100.113.0.0/16
-                    │
-        ┌───────────┴───────────┐
-        │                       │
-   iPhone                    CT101
-100.113.124.99          100.113.51.59
-                                │
-                                │ routing
-                                ▼
-                         Homelab LAN
-                        192.168.20.0/24
-```
-
-## Routing Peer
-
-CT101 operates as a NetBird routing peer.
-
-This allows NetBird clients to reach resources on the physical homelab LAN that do not themselves run NetBird.
-
-For example:
-
-```text
-iPhone
-  │
-  │ NetBird
-  ▼
-CT101
-192.168.20.97
-  │
-  │ LAN routing
-  ▼
-Pi-hole
-192.168.20.99
-```
-
-This is particularly useful for accessing infrastructure services without installing NetBird on every individual service.
-
-## Current Routed Resource
-
-The current routed resource is:
-
-```text
-192.168.20.99
-```
-
-This is the Pi-hole server.
-
-The resource allows remote NetBird clients to communicate with Pi-hole across the NetBird routing peer.
-
-## Masquerading
-
-Masquerading is enabled for the routed traffic.
-
-This allows traffic arriving through the NetBird routing peer to be translated appropriately when communicating with the LAN.
-
-The effective flow is:
-
-```text
-NetBird client
-      │
-      ▼
-100.113.51.59
-      │
-      │ masqueraded/routed
-      ▼
-192.168.20.99
-```
-
-Masquerading is useful here because the LAN does not currently have a dedicated route back to the NetBird overlay network.
-
-A future firewall/router deployment may allow this architecture to be refined.
+This keeps the remote-access scope intentionally limited.
 
 ## DNS
 
-Pi-hole provides DNS for NetBird clients.
+NetBird DNS is configured to use Pi-hole:
 
-The configured DNS server is:
+    192.168.20.99:53
 
-```text
-192.168.20.99
-```
+The global NetBird DNS configuration sends DNS queries through Pi-hole.
 
-DNS requests therefore follow:
+This provides the same DNS filtering and local DNS resolution to connected NetBird clients that is available to devices on the home LAN.
 
-```text
-NetBird client
-     │
-     ▼
-CT101 / NetBird
-     │
-     ▼
-Pi-hole
-192.168.20.99:53
-     │
-     ▼
-Unbound
-127.0.0.1:5335
-```
+Internal hostnames such as:
 
-This allows remote clients to use the same DNS infrastructure as local homelab clients.
+    pihole.robynshomelab.dev
+    jellyfin.robynshomelab.dev
+    beszel.robynshomelab.dev
+    status.robynshomelab.dev
 
-## Internal DNS
+resolve through the existing Pi-hole local DNS configuration.
 
-Pi-hole also provides internal DNS records for the homelab services.
+## Authentication and persistence
 
-Current records include:
+CT101 is registered as a permanent machine peer using a **NetBird setup key** rather than relying on interactive SSO authentication.
 
-```text
-jellyfin.robynshomelab.dev → 192.168.20.94
-status.robynshomelab.dev   → 192.168.20.94
-beszel.robynshomelab.dev   → 192.168.20.94
-pihole.robynshomelab.dev   → 192.168.20.94
-```
+This is important because NetBird's periodic user-authentication/session expiration applies to peers registered through interactive user authentication. Setup-key-registered machines are intended for unattended servers and infrastructure.
 
-When connected to NetBird, a client can therefore use the same service hostnames as a device physically connected to the LAN.
+The setup key used during registration was configured with:
 
-## NetBird Policies
+- Reusable: enabled
+- Ephemeral peer: disabled
+- Key expiration: unlimited
+- Usage limit: 1
+- Extra DNS labels: disabled
 
-NetBird access policies restrict what connected peers can access.
+The setup key was revoked after CT101 was successfully registered.
 
-The current configuration permits the required DNS traffic to Pi-hole:
+The setup key itself is not stored in this repository.
 
-```text
-Pi-hole
-192.168.20.99
-TCP/53
-UDP/53
-```
+### Authentication verification
 
-TCP port 8080 is also permitted where required for Pi-hole web access.
+After migrating CT101 from the original SSO registration, the following was tested:
 
-The intention is to avoid giving remote NetBird clients unrestricted access to the entire `192.168.20.0/24` network.
+    netbird down
+    netbird up
 
-Access should be granted only to services that actually need to be reachable remotely.
+NetBird reconnected successfully without requesting another SSO login.
 
-## Remote Client
+This confirms that CT101 can reconnect using its persistent machine registration without requiring an interactive user session.
 
-An iPhone is currently enrolled as a NetBird peer.
+## Service persistence
 
-Current overlay address:
+The NetBird daemon runs as a systemd service:
 
-```text
-100.113.124.99
-```
+    systemctl status netbird
 
-The iPhone connects to the homelab through a NetBird relay.
+The service is enabled and starts automatically with Debian.
 
-Despite the relay connection, normal internet access remains functional.
+Expected state:
 
-Traffic destined for homelab resources is routed through NetBird, while normal internet traffic continues through the phone's regular internet connection.
+    Active: active (running)
+    Loaded: ... enabled
 
-Conceptually:
+This means NetBird should automatically reconnect after a CT101 reboot.
 
-```text
-                    iPhone
-               100.113.124.99
-                      │
-               NetBird overlay
-                      │
-                      ▼
-                   CT101
-              100.113.51.59
-                      │
-                 LAN routing
-                      │
-                      ▼
-                Homelab LAN
-```
+## IP forwarding
 
-## DNS Verification
+CT101 is configured to forward IPv4 traffic:
 
-DNS traffic from the iPhone was verified with packet capture on Pi-hole.
+    net.ipv4.ip_forward = 1
 
-Example:
+This allows CT101 to act as the NetBird routing peer for the selected LAN destinations.
 
-```bash
-tcpdump -ni any port 53
-```
+## Firewall
 
-This confirmed that DNS requests originating from the remote NetBird client reach Pi-hole.
+CT101 currently uses nftables.
 
-This is an important verification because it confirms that the NetBird routing, policy, and DNS configuration are functioning together rather than merely showing the peer as connected.
+The routing container is intentionally permissive because its primary purpose is forwarding NetBird traffic to the explicitly configured LAN routes.
 
-## Connectivity Testing
+Final restrictive firewall policy can be introduced later if the routing architecture changes.
 
-Check the NetBird service:
+## Security model
 
-```bash
-systemctl status netbird
-```
+The homelab does not expose the following services directly through router port forwarding:
 
-Check the NetBird version:
+- Pi-hole
+- Nginx management
+- Jellyfin
+- Beszel
+- Uptime Kuma
+- other internal services
 
-```bash
-netbird version
-```
+NetBird provides the private network path instead.
 
-Check peer status:
+Cloudflare is **not** used as a traffic proxy for NetBird or the internal services. Cloudflare remains the authoritative DNS provider for `robynshomelab.dev`.
 
-```bash
-netbird status
-```
+## Current connected clients
 
-The status output can be used to confirm:
+Known NetBird clients include:
 
-* whether the daemon is connected
-* the assigned NetBird address
-* connected peers
-* connection type
-* relay/direct connectivity
+| Client | NetBird IP | Purpose |
+| --- | --- | --- |
+| `netbird` | `100.113.51.59` | Homelab routing peer |
+| `iphone-tliam` | `100.113.124.99` | Remote mobile access |
+| `blueline` | `100.113.48.198` | Personal client |
 
-## Routing Verification
+Connection type may be P2P or relayed depending on network conditions.
 
-Check the routing table:
+## Useful commands
 
-```bash
-ip route
-```
+Check overall status:
 
-Check the network interfaces:
+    netbird status
 
-```bash
-ip addr
-```
+Show detailed peer information:
 
-The NetBird interface should be visible alongside the normal LAN interface.
+    netbird status --detail
 
-## DNS Testing
+Disconnect the client:
 
-From a NetBird client, test Pi-hole directly:
+    netbird down
 
-```bash
-dig google.com @192.168.20.99
-```
+Reconnect the client:
 
-Test an internal homelab hostname:
+    netbird up
 
-```bash
-dig jellyfin.robynshomelab.dev @192.168.20.99
-```
+Check the systemd service:
 
-The internal hostname should resolve to:
+    systemctl status netbird
 
-```text
-192.168.20.94
-```
+Restart the service:
 
-This confirms that the remote client can use Pi-hole's local DNS configuration.
+    systemctl restart netbird
 
-## Service Testing
+## Notes
 
-After confirming routing and DNS, test the reverse-proxied services:
+CT101 is intentionally kept as a dedicated NetBird routing peer.
 
-```bash
-curl -I https://jellyfin.robynshomelab.dev
-curl -I https://status.robynshomelab.dev
-curl -I https://beszel.robynshomelab.dev
-curl -I https://pihole.robynshomelab.dev
-```
+The Dell OptiPlex 3060 hosts several infrastructure services, but NetBird routing is kept separate from the application workloads.
 
-These hostnames should resolve through Pi-hole and reach Nginx at:
+The planned Pterodactyl VM on the Dell OptiPlex 9020 will use its own NetBird peer rather than routing through CT101.
 
-```text
-192.168.20.94
-```
+This keeps the two Proxmox hosts and their workloads independently reachable through NetBird.
 
-The resulting traffic path is:
+---
 
-```text
-Remote client
-     │
-     ▼
-NetBird
-     │
-     ▼
-CT101
-     │
-     ▼
-Pi-hole DNS
-     │
-     ▼
-192.168.20.94
-     │
-     ▼
-Nginx
-     │
-     ├── Jellyfin
-     ├── Uptime Kuma
-     ├── Beszel
-     └── Pi-hole
-```
-
-## Firewall Considerations
-
-The current ISP router is responsible for the basic LAN network.
-
-A dedicated firewall/router has not yet been deployed.
-
-The future network design is expected to use pfSense with VLANs:
-
-```text
-Internet
-    │
-    ▼
-pfSense
-    │
-    ▼
-Managed switch
-    ├── VLAN 10 Trusted
-    ├── VLAN 20 Servers
-    ├── VLAN 30 IoT
-    ├── VLAN 40 Guest
-    └── VLAN 50 Management
-```
-
-At that point, NetBird access can be integrated with more granular firewall rules.
-
-The current NetBird routing design should therefore be considered the initial homelab implementation rather than the final network-security architecture.
-
-## Security Model
-
-The homelab does not use router port forwarding for private NetBird access.
-
-Instead:
-
-```text
-Internet
-   │
-   │ encrypted NetBird connection
-   ▼
-NetBird overlay
-   │
-   ▼
-CT101
-   │
-   ▼
-Homelab LAN
-```
-
-This keeps internal services inaccessible from the public internet unless they are deliberately exposed through a separate mechanism.
-
-NetBird policies should remain restrictive.
-
-Avoid creating broad rules such as unrestricted access from every NetBird peer to the entire LAN unless there is a specific requirement.
-
-## Separation From Future Game Services
-
-NetBird CT101 is **not** intended to become the gateway for the future Pterodactyl installation.
-
-The planned Pterodactyl server will run on the Dell OptiPlex 9020.
-
-The future architecture is:
-
-```text
-9020
-└── Debian VM
-    ├── Pterodactyl Panel
-    ├── Wings
-    └── NetBird
-        └── Reverse Proxy
-```
-
-That NetBird instance will have a separate purpose from CT101.
-
-CT101:
-
-```text
-Private homelab access
-```
-
-9020 VM:
-
-```text
-Game/service exposure to selected friends
-```
-
-Keeping these roles separate prevents the private infrastructure access gateway from becoming coupled to publicly reachable game services.
-
-## No Router Port Forwarding
-
-The current NetBird deployment does not require port forwarding on the ISP router.
-
-This is intentional.
-
-The homelab should not expose:
-
-```text
-192.168.20.94
-192.168.20.95
-192.168.20.96
-192.168.20.97
-192.168.20.98
-192.168.20.99
-192.168.20.100
-```
-
-directly to the public internet.
-
-Public DNS should also never contain these private addresses.
-
-## Troubleshooting
-
-### NetBird is disconnected
-
-Check:
-
-```bash
-systemctl status netbird
-```
-
-Then:
-
-```bash
-netbird status
-```
-
-Check recent logs:
-
-```bash
-journalctl -u netbird --no-pager
-```
-
-### Peer is connected but LAN resources are unreachable
-
-Check:
-
-```bash
-ip route
-```
-
-Then verify the routing peer configuration in the NetBird management interface.
-
-Confirm that the relevant resource includes:
-
-```text
-192.168.20.99
-```
-
-and that masquerading is enabled where required.
-
-### DNS does not work remotely
-
-Test Pi-hole directly:
-
-```bash
-dig google.com @192.168.20.99
-```
-
-If that fails, check whether the NetBird client can reach Pi-hole at all.
-
-On Pi-hole, inspect DNS traffic:
-
-```bash
-tcpdump -ni any port 53
-```
-
-If no traffic appears, investigate NetBird routing or policy configuration.
-
-### Internal hostnames do not resolve
-
-Test:
-
-```bash
-dig jellyfin.robynshomelab.dev @192.168.20.99
-```
-
-Expected result:
-
-```text
-192.168.20.94
-```
-
-If Pi-hole returns the correct address but the service is inaccessible, the problem is likely routing, policy, Nginx, or the backend service rather than DNS.
-
-### Internet access stops on the remote client
-
-The current configuration is intended to route homelab traffic through NetBird while leaving normal internet traffic on the client's normal connection.
-
-If all internet traffic begins routing through the homelab, check the NetBird routing and DNS configuration for unintended default-route behaviour.
-
-## Key Commands
-
-| Command                                         | Purpose                               |
-| ----------------------------------------------- | ------------------------------------- |
-| `systemctl status netbird`                      | Check the NetBird service             |
-| `systemctl restart netbird`                     | Restart the NetBird service           |
-| `netbird status`                                | Show peer and connection status       |
-| `netbird version`                               | Show installed NetBird version        |
-| `ip addr`                                       | Show network interfaces and addresses |
-| `ip route`                                      | Show routing table                    |
-| `dig google.com @192.168.20.99`                 | Test remote access to Pi-hole DNS     |
-| `dig jellyfin.robynshomelab.dev @192.168.20.99` | Test internal DNS resolution          |
-| `tcpdump -ni any port 53`                       | Monitor DNS traffic                   |
-| `journalctl -u netbird --no-pager`              | View NetBird service logs             |
-
-## Current State
-
-NetBird private access is operational.
-
-Current topology:
-
-```text
-                           NetBird
-                       100.113.0.0/16
-                              │
-                 ┌────────────┴────────────┐
-                 │                         │
-              iPhone                    CT101
-         100.113.124.99             100.113.51.59
-                                           │
-                                           │ routing
-                                           ▼
-                                  Homelab LAN
-                                  192.168.20.0/24
-                                           │
-                                           ▼
-                                     Pi-hole
-                                  192.168.20.99
-                                           │
-                                           ▼
-                                      Unbound
-                                  127.0.0.1:5335
-```
-
-The iPhone has successfully connected through a NetBird relay, reached Pi-hole, and generated DNS traffic visible on the Pi-hole host.
-
-NetBird is currently used exclusively for private homelab access.
-
-The future Pterodactyl/9020 NetBird deployment will be separate.
-
+**Status:** 🟢 Deployed and persistent
