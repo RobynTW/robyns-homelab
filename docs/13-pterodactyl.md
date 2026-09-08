@@ -2,648 +2,896 @@
 
 ## Overview
 
-Pterodactyl is planned as the game-server management platform for the homelab.
+Pterodactyl is the game-server management platform for the homelab.
 
-It will run separately from the main Proxmox 3060 infrastructure on the Dell OptiPlex 9020.
+It runs on the Dell OptiPlex 9020 SFF inside a dedicated Debian 13 KVM virtual machine.
 
-The Pterodactyl deployment is **not currently deployed**.
+The deployment is intentionally isolated from the Proxmox host and from the future NAS/file-sharing workload.
 
-The planned architecture is:
+Current architecture:
 
-```text id="p2w8rj"
-                    Dell OptiPlex 9020
-                           │
-                       Proxmox
-                           │
-                           ▼
-                  Debian 13 KVM VM
-                           │
-                 ┌─────────┴─────────┐
-                 ▼                   ▼
-            Pterodactyl            Wings
-               Panel                │
-                 │                   ▼
-                 └────────────► Docker
-                                     │
-                              ┌──────┴──────┐
-                              ▼             ▼
-                         Game Server 1  Game Server 2
-```
-
-NetBird will provide the private networking layer for remote access and game-server exposure.
-
-## Hardware
-
-The Pterodactyl host will be the Dell OptiPlex 9020 SFF.
-
-The 9020 is also intended to provide NAS/storage services, with the game-server workload running separately inside its own virtual machine.
-
-The planned host architecture is:
-
-```text id="e3j7tq"
+```text
 Dell OptiPlex 9020
 │
-├── Proxmox
-│
-├── NAS / Storage
-│
-└── Pterodactyl VM
+└── Proxmox pve-2
+    │
+    └── VM 108
+        │
+        └── Debian 13
+            │
+            ├── Pterodactyl Panel
+            ├── MariaDB
+            ├── Redis
+            ├── PHP 8.3
+            ├── PHP-FPM
+            ├── Composer
+            └── Docker
 ```
 
-Keeping Pterodactyl in its own VM provides isolation from the NAS operating system.
+Wings has not yet been installed.
 
-## Planned Virtual Machine
+Game servers have not yet been created.
 
-Pterodactyl will run inside a dedicated KVM virtual machine.
+---
 
-Planned configuration:
+# Host
 
-```text id="u8oym5"
-Operating system: Debian 13 minimal
-CPU: 4 vCPU
-RAM: 8 GB
-Disk: 32–64 GB
+Pterodactyl runs on:
+
+```text
+Host: Dell OptiPlex 9020 SFF
+Proxmox node: pve-2
+Host IP: 192.168.20.101
+```
+
+The Pterodactyl workload is intentionally kept separate from the future NAS/storage workload.
+
+The 4 TB WD Blue `WD40EZRZ` planned for the 9020 is intended for network file sharing and is not currently used by Pterodactyl.
+
+---
+
+# Pterodactyl VM
+
+## VM Identification
+
+```text
+VMID:     108
+Hostname: pterodactyl
+IP:       192.168.20.111
+```
+
+## Operating System
+
+```text
+OS: Debian GNU/Linux 13 (Trixie)
+Kernel: 6.12.107+deb13-amd64
+Virtualisation: KVM
+```
+
+The VM is headless and is administered using SSH.
+
+SSH:
+
+```bash
+ssh robyn@192.168.20.111
+```
+
+---
+
+# VM Resource Allocation
+
+The current VM allocation is:
+
+```text
+CPU:
+    6 vCPU
+    1 socket
+    6 cores
+    CPU type: host
+
+Memory:
+    12 GB
+
+Disk:
+    40 GB
+    local-lvm
+```
+
+The VM uses:
+
+```text
+Machine: Q35
+Firmware: OVMF / UEFI
+SCSI: VirtIO SCSI single
 Network: VirtIO
+Bridge: vmbr0
+QEMU Guest Agent: enabled
+NUMA: disabled
+Ballooning: disabled
+Nested virtualisation: disabled
 ```
 
-The final resource allocation can be adjusted depending on the number and requirements of the game servers being hosted.
+Disk options:
 
-The VM will receive a static DHCP lease or another stable LAN address.
+```text
+Cache: none
+Discard: enabled
+IO thread: enabled
+SSD emulation: enabled
+Backup: enabled
+```
 
-The exact IP address will be documented after deployment.
+---
 
-## Pterodactyl Components
+# Initial Debian Configuration
 
-The planned installation will contain both the Pterodactyl Panel and Wings.
+The Debian installation was performed without a desktop environment.
 
-```text id="xij6hj"
+Installed components included:
+
+* SSH server
+* Standard system utilities
+* `sudo`
+
+The primary administrative user is:
+
+```text
+robyn
+```
+
+The user was added to the sudo group.
+
+Root access is therefore normally performed using:
+
+```bash
+sudo -i
+```
+
+or individual commands using:
+
+```bash
+sudo <command>
+```
+
+---
+
+# Base Packages
+
+The following base packages were installed:
+
+```bash
+curl
+ca-certificates
+gnupg2
+sudo
+lsb-release
+```
+
+These provide the utilities required for the Pterodactyl installation and repository configuration.
+
+---
+
+# Docker
+
+Docker Engine was installed inside the Pterodactyl VM.
+
+The installation used Docker's official installation mechanism:
+
+```bash
+curl -sSL https://get.docker.com/ | CHANNEL=stable bash
+```
+
+Docker was then enabled and started:
+
+```bash
+systemctl enable --now docker
+```
+
+The installed Docker environment was verified as operational.
+
+Docker is installed inside VM 108 rather than directly on the Proxmox host.
+
+This allows Wings to manage isolated game-server containers without placing Docker workloads directly on Proxmox.
+
+---
+
+# PHP
+
+Pterodactyl requires PHP 8.3 for the current deployment.
+
+The Debian system uses the Sury PHP repository.
+
+Repository configuration:
+
+```bash
+echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" \
+  > /etc/apt/sources.list.d/sury-php.list
+
+curl -fsSL https://packages.sury.org/php/apt.gpg \
+  | gpg --dearmor -o /etc/apt/trusted.gpg.d/sury-keyring.gpg
+
+apt update
+```
+
+Installed PHP components include:
+
+```text
+php8.3
+php8.3-common
+php8.3-cli
+php8.3-gd
+php8.3-mysql
+php8.3-mbstring
+php8.3-bcmath
+php8.3-xml
+php8.3-fpm
+php8.3-curl
+php8.3-zip
+```
+
+Verified PHP version:
+
+```text
+PHP 8.3.33
+```
+
+PHP-FPM is enabled and running.
+
+---
+
+# MariaDB
+
+MariaDB is used as the Pterodactyl Panel database.
+
+Installed version:
+
+```text
+MariaDB 11.8.6
+```
+
+The MariaDB service is enabled and running.
+
+Database:
+
+```text
+panel
+```
+
+Database user:
+
+```text
+pterodactyl
+```
+
+The user has privileges over the `panel` database.
+
+The database account is configured for local access.
+
+The database password is intentionally not documented.
+
+---
+
+# Redis
+
+Redis is installed for Pterodactyl's caching/queue requirements.
+
+The Redis service is enabled and running.
+
+The installation was deliberately performed separately from the main dependency installation after the initial package installation appeared to pause during the Redis portion.
+
+Package state was verified using:
+
+```bash
+dpkg --audit
+```
+
+and:
+
+```bash
+apt-get --fix-broken install
+```
+
+No broken packages remained.
+
+---
+
+# Nginx and PHP-FPM
+
+Nginx is installed inside the Pterodactyl VM because it is part of the standard Pterodactyl Panel application stack.
+
+However, the VM's Nginx is **not currently intended to be the public HTTPS reverse proxy**.
+
+The homelab already has Nginx running on the existing infrastructure host:
+
+```text
+CT 100
+192.168.20.99
+```
+
+The existing Nginx/Certbot infrastructure should remain the public HTTPS termination point.
+
+The intended architecture is therefore:
+
+```text
+Internet
+   │
+   │ HTTPS
+   ▼
+CT 100
+192.168.20.99
+Nginx
+   │
+   │ HTTP/internal proxy
+   ▼
+VM 108
+192.168.20.111
+Pterodactyl Panel
+```
+
+The exact reverse-proxy configuration will be implemented later.
+
+---
+
+# Composer
+
+Composer was installed for PHP dependency management.
+
+Verified version:
+
+```text
+Composer 2.10.3
+PHP 8.3.33
+```
+
+---
+
+# Pterodactyl Panel Installation
+
+The Panel was installed under:
+
+```text
+/var/www/pterodactyl
+```
+
+The current Panel release was downloaded from the Pterodactyl release repository and extracted into this directory.
+
+Ownership was set to:
+
+```text
+www-data:www-data
+```
+
+Permissions were configured so that the Panel's application directories are accessible by the web service.
+
+The writable directories include:
+
+```text
+/var/www/pterodactyl/storage
+/var/www/pterodactyl/bootstrap/cache
+```
+
+---
+
+# Composer Dependencies
+
+Pterodactyl's PHP dependencies were installed using:
+
+```bash
+sudo -u www-data composer install --no-dev --optimize-autoloader
+```
+
+Composer successfully installed the Panel dependencies and generated the optimized autoloader.
+
+The initial Composer run displayed an application encryption-key warning because the Panel had not yet been configured.
+
+This was expected and was resolved during the environment configuration stage.
+
+---
+
+# Environment Configuration
+
+The Panel environment file was created from the example configuration:
+
+```bash
+cp .env.example .env
+```
+
+The Laravel application key was then generated:
+
+```bash
+php artisan key:generate --force
+```
+
+The command completed successfully with:
+
+```text
+Application key set successfully.
+```
+
+The `.env` file contains the MariaDB connection details.
+
+Database credentials are intentionally not documented.
+
+---
+
+# Database Migration
+
+After configuring the database connection, the Panel database connection was tested using:
+
+```bash
+php artisan migrate:status
+```
+
+The first test successfully reached MariaDB but reported:
+
+```text
+ERROR  Migration table not found.
+```
+
+This confirmed that the database credentials and connection were functioning correctly and that the database had not yet been initialised.
+
+The database was then initialised using:
+
+```bash
+php artisan migrate --seed --force
+```
+
+The migrations and database seed completed successfully.
+
+---
+
+# Administrator Account
+
+A Pterodactyl administrator account was created using:
+
+```bash
+php artisan p:user:make
+```
+
+The account was created with administrator privileges.
+
+The administrator account is:
+
+```text
+Username: robyn
+Name: Robyn Walker
+Administrator: Yes
+```
+
+The account password is intentionally not documented.
+
+---
+
+# Current Panel State
+
+The Pterodactyl Panel is installed and its database is initialised.
+
+Current state:
+
+```text
+Panel:       Installed
+Database:    Configured
+Migrations:  Complete
+Admin user:  Created
+PHP:         Operational
+MariaDB:     Operational
+Redis:       Operational
+Composer:     Operational
+Docker:      Operational
+Nginx:       Installed
+```
+
+The Panel has not yet been integrated into the homelab's external HTTPS architecture.
+
+---
+
+# Domain
+
+The homelab domain is:
+
+```text
+robynshomelab.dev
+```
+
+The intended Pterodactyl Panel hostname is:
+
+```text
+panel.robynshomelab.dev
+```
+
+This hostname has not yet been configured as part of the Pterodactyl deployment.
+
+The existing homelab Nginx/Certbot infrastructure should be used for public HTTPS termination rather than creating a second independent public reverse-proxy architecture on VM 108.
+
+---
+
+# Network Architecture
+
+The Pterodactyl VM is directly connected to the homelab LAN:
+
+```text
+192.168.20.0/24
+```
+
+Current VM address:
+
+```text
+192.168.20.111
+```
+
+The intended service architecture is:
+
+```text
+                         Internet
+                            │
+                            │ HTTPS
+                            ▼
+                    ┌───────────────┐
+                    │ CT 100        │
+                    │ Nginx/Certbot │
+                    │ 192.168.20.99 │
+                    └───────┬───────┘
+                            │
+                            │ HTTP
+                            ▼
+                    ┌───────────────┐
+                    │ VM 108        │
+                    │ Pterodactyl   │
+                    │ 192.168.20.111│
+                    └───────┬───────┘
+                            │
+                            ▼
+                         Panel
+```
+
+Game-server traffic will be handled separately.
+
+---
+
+# NetBird Integration
+
+The existing NetBird routing peer is:
+
+```text
+CT 101
+192.168.20.97
+```
+
+It currently provides private access to the homelab.
+
+The Pterodactyl deployment will not repurpose CT 101 for game-server workloads.
+
+The exact Pterodactyl/NetBird design is still being finalised.
+
+The intended separation is:
+
+```text
+Existing homelab access
+        │
+        ▼
+CT 101 NetBird
+        │
+        ▼
+Homelab services
+
+
+Pterodactyl game access
+        │
+        ▼
+Pterodactyl / NetBird
+        │
+        ▼
+Wings
+        │
+        ▼
+Docker game servers
+```
+
+No final game-server exposure configuration has yet been deployed.
+
+---
+
+# Wings
+
+Wings is **not yet installed**.
+
+Wings will be installed inside VM 108.
+
+Its role will be:
+
+```text
 Pterodactyl Panel
        │
+       │ API
        ▼
      Wings
        │
        ▼
     Docker
        │
-       ▼
-Game Servers
+       ├── Game Server
+       ├── Game Server
+       └── Game Server
 ```
 
-### Pterodactyl Panel
+Wings will be responsible for managing the Docker containers that run individual game servers.
 
-The Panel provides the web interface for managing:
+---
 
-```text id="w3wpxv"
-Game servers
-Users
-Nodes
-Allocations
-Server resources
-Backups
-Server configurations
+# Game Servers
+
+No game servers have been created yet.
+
+The primary intended workload is modded Minecraft.
+
+Future game servers will be created through the Pterodactyl Panel after Wings is operational.
+
+Each server will receive explicitly configured:
+
+* CPU allocation
+* Memory allocation
+* Storage allocation
+* Network allocation
+* Game-specific ports
+
+---
+
+# Storage
+
+The current Pterodactyl VM has:
+
+```text
+40 GB virtual disk
 ```
 
-The Panel is intended to remain private rather than being exposed directly to the public internet.
+on the 9020's SSD-backed Proxmox storage.
 
-### Wings
+The 4 TB WD Blue HDD planned for the 9020 is **not currently attached to Pterodactyl**.
 
-Wings is the Pterodactyl node daemon responsible for actually running the game servers.
+That HDD is intended for a separate network file-sharing/NFS workload.
 
-It communicates with the Panel and manages the Docker containers used by the individual game servers.
+Pterodactyl game-server storage should therefore remain on the VM unless a deliberate shared-storage architecture is designed later.
 
-The planned relationship is:
+---
 
-```text id="w0vtdl"
-Panel
-  │
-  │ API
-  ▼
-Wings
-  │
-  ▼
-Docker
-  │
-  ├── Game server
-  ├── Game server
-  └── Game server
-```
+# Security Model
 
-## Docker
+The Panel is treated as an administrative service.
 
-Wings will use Docker to isolate individual game servers.
-
-Each game server will run inside its own container.
-
-This provides separation between:
-
-```text id="c9w0av"
-Game server processes
-Game server files
-Dependencies
-Resource limits
-Container networking
-```
-
-Docker will therefore be installed inside the dedicated Pterodactyl VM rather than directly on the Proxmox host.
-
-## Network Architecture
-
-The Pterodactyl VM will connect to the homelab LAN through the Proxmox bridge.
-
-The planned architecture is:
-
-```text id="8p6j6x"
-                         Home Network
-                              │
-                              ▼
-                         Proxmox 9020
-                              │
-                              ▼
-                     Pterodactyl VM
-                              │
-                              ▼
-                            Wings
-                              │
-                              ▼
-                           Docker
-                              │
-                   ┌──────────┴──────────┐
-                   ▼                     ▼
-              Game Server 1         Game Server 2
-```
-
-The exact VM address will be added after deployment.
-
-## NetBird Integration
-
-NetBird will be used separately from the existing CT101 NetBird routing peer.
-
-The Pterodactyl VM will have its own NetBird installation.
-
-This is intentional.
-
-The existing NetBird LXC:
-
-```text id="1j4o3w"
-CT101
-192.168.20.97
-```
-
-is dedicated to private homelab access and should not be repurposed for Pterodactyl game-server exposure.
-
-The future Pterodactyl VM will instead use NetBird for its own service exposure.
-
-## Private Remote Access
-
-NetBird can provide private access to the Pterodactyl Panel.
-
-The intended model is:
-
-```text id="e7e0mm"
-Remote Device
-      │
-      │ NetBird
-      ▼
-Pterodactyl VM
-      │
-      ▼
-Pterodactyl Panel
-```
-
-This avoids exposing the administration interface directly to the internet.
-
-The Panel should therefore remain accessible only through trusted network paths.
-
-## Game Server Access
-
-Game servers will be exposed separately from the Pterodactyl Panel.
-
-The intended architecture is:
-
-```text id="wqgkwv"
-Player
-  │
-  │ NetBird
-  ▼
-Pterodactyl VM
-  │
-  ▼
-Wings
-  │
-  ▼
-Game Server
-```
-
-This allows game-server traffic to be controlled independently from Panel administration.
-
-Game servers are intended for a limited group of friends rather than general public access.
-
-## No Router Port Forwarding
-
-The Pterodactyl deployment should not require direct port forwarding from the ISP router.
-
-The preferred architecture is:
-
-```text id="l5x1lc"
-Internet
-   │
-   │
-   X  No direct router forwarding
-   │
-   ▼
-NetBird
-   │
-   ▼
-Pterodactyl VM
-```
-
-This reduces the number of directly exposed services and keeps the game-server infrastructure under the homelab's existing private-access model.
-
-## NetBird Reverse Proxy
-
-The future Pterodactyl setup is intended to use NetBird's reverse-proxy capabilities where appropriate.
-
-This can provide controlled access to services without exposing the homelab through traditional router port forwarding.
-
-The exact NetBird reverse-proxy configuration will be determined during deployment.
-
-The architecture should remain:
-
-```text id="c2gd4k"
-Trusted Player
-      │
-      ▼
-    NetBird
-      │
-      ▼
-Pterodactyl VM
-      │
-      ▼
- Game Service
-```
-
-## Game Allocations
-
-Pterodactyl uses allocations to associate network addresses and ports with game servers.
-
-The exact ports depend on the game being hosted.
-
-For example:
-
-```text id="j5k6xq"
-Pterodactyl
-│
-├── Game Server A
-│   └── Allocation: <game-specific port>
-│
-└── Game Server B
-    └── Allocation: <game-specific port>
-```
-
-Ports should be allocated explicitly rather than opening broad port ranges unnecessarily.
-
-The actual allocations will be documented when game servers are created.
-
-## Pterodactyl Ports
-
-The standard Pterodactyl components commonly use:
-
-```text id="x3tr50"
-Panel:
-HTTP  → 80
-HTTPS → 443
-
-Wings:
-HTTP/API → 8080
-HTTPS    → 8443
-
-SFTP:
-2022
-```
-
-Game-server ports are separate and depend on the individual game.
-
-These ports describe the planned internal service architecture and should not be interpreted as router port-forwarding requirements.
-
-The final configuration should be verified against the Pterodactyl/Wings versions installed during deployment.
-
-## Panel Access
-
-The Panel will be treated as an administrative interface.
-
-It should not be directly exposed to the public internet.
-
-Possible future access paths include:
-
-```text id="a1qghw"
-NetBird
-Internal LAN
-```
-
-A dedicated hostname may be created later if required.
-
-For example:
-
-```text id="9txg3k"
-panel.robynshomelab.dev
-```
-
-This hostname is only a potential future configuration and is not currently configured.
-
-## DNS
-
-If a hostname is required for the Panel, Pi-hole can provide an internal DNS record pointing to the Pterodactyl VM.
-
-The exact record will be determined after deployment.
-
-The public Cloudflare DNS zone should not contain private LAN addresses such as:
-
-```text id="l2v1ns"
-192.168.20.x
-```
-
-Internal service names should therefore resolve through Pi-hole where appropriate.
-
-## Storage
-
-Pterodactyl requires storage for:
-
-```text id="v82xkq"
-Docker images
-Game-server files
-Configuration
-Logs
-Backups
-```
-
-The Pterodactyl VM will have its own virtual disk.
-
-The initial planned disk allocation is:
-
-```text id="w2o2ax"
-32–64 GB
-```
-
-The final storage requirement depends heavily on the games hosted.
-
-Large game-server datasets should not automatically be placed on the NAS.
-
-Storage requirements will be assessed after the first game servers are deployed.
-
-## NAS Relationship
-
-The 9020 will also provide NAS services.
-
-The Pterodactyl VM should remain logically separated from the NAS operating system.
-
-The intended architecture is:
-
-```text id="5r6ez5"
-9020
-│
-├── NAS / Storage
-│
-└── Pterodactyl VM
-      │
-      └── Docker
-            └── Game Servers
-```
-
-If shared storage is required later, it should be deliberately designed rather than mounting the entire NAS filesystem into the VM.
-
-## Resource Management
-
-The initial VM allocation is:
-
-```text id="qv8a2x"
-4 vCPU
-8 GB RAM
-```
-
-Individual game servers will then receive their own Pterodactyl resource limits.
-
-This allows the total host workload to remain controlled.
-
-For example:
-
-```text id="u5f1wt"
-Pterodactyl VM
-│
-├── Game A
-│   ├── CPU limit
-│   └── Memory limit
-│
-├── Game B
-│   ├── CPU limit
-│   └── Memory limit
-│
-└── Game C
-    ├── CPU limit
-    └── Memory limit
-```
-
-Actual limits should be based on the requirements of each game.
-
-## Backups
-
-Pterodactyl configuration and game-server data should be considered separately.
-
-Important backup targets include:
-
-```text id="2d4j4y"
-Pterodactyl Panel configuration
-Wings configuration
-Game-server configuration
-Important game worlds/saves
-Docker/Pterodactyl metadata
-```
-
-Not every game-server file necessarily needs to be backed up.
-
-The backup strategy should prioritise irreplaceable configuration and saved game data.
-
-## Monitoring
-
-The Pterodactyl VM should eventually be monitored by the existing monitoring infrastructure.
-
-Uptime Kuma can provide service availability monitoring.
-
-Beszel can monitor the VM's:
-
-```text id="n8n0bj"
-CPU
-Memory
-Disk
-Network
-Temperature where available
-```
-
-Potential Uptime Kuma monitors include:
-
-```text id="1shm2h"
-Pterodactyl Panel
-Wings
-Individual game services
-```
-
-These monitors should be added after the Pterodactyl VM is deployed.
-
-## Security
-
-The Pterodactyl environment should follow the principle of exposing only what is required.
+It should not be unnecessarily exposed directly to the public internet.
 
 The preferred model is:
 
-```text id="3k14qv"
+```text
 Panel
-└── Private access only
+└── HTTPS through existing Nginx infrastructure
 
 Wings
-└── Required Panel communication
+└── Only required Panel communication
 
-Game Servers
-└── NetBird/private access for intended players
+Game servers
+└── Controlled access through the planned NetBird architecture
 ```
 
-Administrative access should not be shared with game-server users unless explicitly required.
+Passwords, database credentials, application keys, API tokens and private keys must never be committed to Git.
 
-Game servers should also be isolated from the rest of the homelab as much as practical.
+---
 
-## Future Firewall/VLAN Integration
+# Remaining Deployment Tasks
 
-The current network uses the ISP router and a flat LAN.
+The following tasks remain:
 
-A future managed-switch/pfSense design is planned:
-
-```text id="2s9j4c"
-Internet
-  │
-  ▼
-pfSense
-  │
-  ▼
-Managed Switch
-  │
-  ├── VLAN 10 Trusted
-  ├── VLAN 20 Servers
-  ├── VLAN 30 IoT
-  ├── VLAN 40 Guest
-  └── VLAN 50 Management
+```text
+[✓] Install Proxmox on 9020
+[✓] Integrate pve-2 into homelab cluster
+[✓] Create VM 108
+[✓] Install Debian 13
+[✓] Configure SSH/sudo
+[✓] Install Docker
+[✓] Install PHP 8.3
+[✓] Install MariaDB
+[✓] Install Redis
+[✓] Install Nginx/PHP-FPM
+[✓] Install Composer
+[✓] Install Pterodactyl Panel
+[✓] Configure .env
+[✓] Generate application key
+[✓] Configure MariaDB
+[✓] Run migrations/seeding
+[✓] Create administrator account
+[ ] Configure Panel URL
+[ ] Configure existing Nginx reverse proxy
+[ ] Configure TLS/Certbot
+[ ] Install Wings
+[ ] Connect Wings to Panel
+[ ] Configure Docker/Pterodactyl node
+[ ] Configure NetBird game-server networking
+[ ] Create first game server
+[ ] Configure game-server allocations
+[ ] Configure backups
+[ ] Add Uptime Kuma monitoring
+[ ] Add Beszel monitoring
 ```
 
-The Pterodactyl VM would ultimately belong to the appropriate server/DMZ-style network depending on the final firewall design.
+---
 
-This is a future improvement and is not part of the current deployment.
+# Deployment Order
 
-## Deployment Order
+The remaining deployment should proceed in stages:
 
-Pterodactyl should be deployed after the basic 9020 infrastructure is operational.
-
-Recommended order:
-
-```text id="x4x0vl"
-1. Install Proxmox on the 9020
-        │
-        ▼
-2. Configure NAS/storage
-        │
-        ▼
-3. Verify 9020 networking
-        │
-        ▼
-4. Create Debian 13 KVM VM
-        │
-        ▼
-5. Configure VM networking
-        │
-        ▼
-6. Install Docker
-        │
-        ▼
-7. Install Pterodactyl Panel
-        │
-        ▼
-8. Install Wings
-        │
-        ▼
-9. Connect Panel and Wings
-        │
-        ▼
-10. Configure NetBird
-        │
-        ▼
-11. Configure private access
-        │
-        ▼
-12. Create first game server
-        │
-        ▼
-13. Configure resource limits
-        │
-        ▼
-14. Configure backups
-        │
-        ▼
-15. Add Uptime Kuma/Beszel monitoring
+```text
+Current state
+     │
+     ▼
+Configure Panel hostname
+     │
+     ▼
+Configure existing Nginx reverse proxy
+     │
+     ▼
+Configure TLS
+     │
+     ▼
+Install Wings
+     │
+     ▼
+Connect Wings to Panel
+     │
+     ▼
+Verify Docker integration
+     │
+     ▼
+Configure NetBird
+     │
+     ▼
+Create first game server
+     │
+     ▼
+Test remote game access
+     │
+     ▼
+Configure monitoring
+     │
+     ▼
+Configure backups
 ```
 
-This order allows each layer to be tested before adding the next.
+Each stage should be tested before moving to the next.
 
-## Current Status
+---
 
-Pterodactyl is currently:
+# Useful Commands
 
-```text id="c0t8f4"
-Status: Planned
-Host: Dell OptiPlex 9020
-VM: Not yet created
-Panel: Not deployed
-Wings: Not deployed
-Docker: Not deployed
-NetBird: Not deployed on Pterodactyl VM
-Game servers: None
-```
-
-The existing CT101 NetBird routing peer remains dedicated to private homelab access.
-
-The future Pterodactyl VM will use its own NetBird installation for game-server-related access.
-
-## Key Commands
-
-No Pterodactyl deployment commands are currently recorded because the VM has not yet been created.
-
-Useful future checks will include:
+## Check Panel files
 
 ```bash
-# Check Docker
-docker version
-
-# List running Docker containers
-docker ps
-
-# Check Docker service
-systemctl status docker
-
-# Check listening ports
-ss -tulpn
-
-# Check Wings service
-systemctl status wings
-
-# Check Wings logs
-journalctl -u wings
-
-# Check NetBird
-netbird status
+ls -la /var/www/pterodactyl
 ```
 
-The actual commands used during deployment should be added to this document as the system is built.
+## Check PHP
 
-## Related Documentation
+```bash
+php -v
+```
+
+## Check Composer
+
+```bash
+composer --version
+```
+
+## Check MariaDB
+
+```bash
+systemctl status mariadb
+```
+
+## Check Redis
+
+```bash
+systemctl status redis-server
+```
+
+## Check Nginx
+
+```bash
+systemctl status nginx
+```
+
+## Check PHP-FPM
+
+```bash
+systemctl status php8.3-fpm
+```
+
+## Check Docker
+
+```bash
+docker version
+```
+
+```bash
+systemctl status docker
+```
+
+## Check listening ports
+
+```bash
+ss -tulpn
+```
+
+## Check Pterodactyl migrations
+
+```bash
+php artisan migrate:status
+```
+
+---
+
+# Current Status
+
+```text
+Pterodactyl:
+    Status: Panel installed
+
+Host:
+    Dell OptiPlex 9020
+    pve-2
+    192.168.20.101
+
+VM:
+    108
+    pterodactyl
+    192.168.20.111
+
+OS:
+    Debian 13 Trixie
+
+Panel:
+    Installed and database initialised
+
+Database:
+    MariaDB 11.8.6
+
+Cache:
+    Redis
+
+PHP:
+    8.3.33
+
+Composer:
+    2.10.3
+
+Docker:
+    Installed and operational
+
+Wings:
+    Not yet installed
+
+NetBird:
+    Pterodactyl integration not yet configured
+
+Game servers:
+    None
+
+Panel hostname:
+    panel.robynshomelab.dev
+    Not yet configured
+
+TLS:
+    Not yet configured for Pterodactyl
+
+Reverse proxy:
+    To be integrated with existing CT 100 Nginx
+```
+
+---
+
+# Related Documentation
 
 The Pterodactyl deployment depends on:
 
-```text id="9ndzpj"
+```text
 01-hardware.md
 02-network.md
 03-proxmox.md
@@ -652,4 +900,6 @@ The Pterodactyl deployment depends on:
 11-uptime-kuma.md
 ```
 
-The NAS/storage documentation will also become relevant once the Dell OptiPlex 9020 is deployed.
+The future NAS/NFS configuration will also be relevant if shared storage is introduced.
+
+The existing Nginx and Certbot documentation should be consulted before configuring the Panel's external HTTPS access.

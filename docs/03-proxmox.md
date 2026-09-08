@@ -4,26 +4,82 @@
 
 Proxmox VE is the virtualisation platform used as the foundation of the homelab.
 
-The primary Proxmox host is a Dell OptiPlex 3060.
+The homelab currently consists of two physical Proxmox hosts:
+
+* Dell OptiPlex 3060 — `pve-1`
+* Dell OptiPlex 9020 SFF — `pve-2`
+
+The two hosts are members of the `homelab` Proxmox cluster.
+
+High-level architecture:
 
 ```text
+                    homelab Proxmox cluster
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+              ▼                         ▼
+        Dell OptiPlex 3060       Dell OptiPlex 9020
+             pve-1                    pve-2
+       192.168.20.100            192.168.20.101
+              │                         │
+       Infrastructure              Pterodactyl
+       Media services                VM 108
+       Monitoring
+```
+
+The cluster is used primarily for centralised Proxmox management. High availability is intentionally not enabled.
+
+---
+
+## Proxmox Cluster
+
+### Cluster Name
+
+```text
+Cluster: homelab
+Nodes:   pve-1
+         pve-2
+```
+
+The cluster currently contains two nodes.
+
+Both nodes use the local homelab network:
+
+```text
+192.168.20.0/24
+```
+
+The cluster currently operates with quorum requiring both nodes.
+
+HA is deliberately disabled. The cluster is therefore used for management and resource organisation rather than automatic service failover.
+
+### Hostnames
+
+The two Proxmox nodes are configured with the following hostnames:
+
+```text
+192.168.20.100 pve-1.home pve-1
+192.168.20.101 pve-2.home pve-2
+```
+
+The corresponding host entries are present on both Proxmox systems.
+
+---
+
+# Proxmox Host — pve-1
+
+## Hardware
+
+```text
+Model: Dell OptiPlex 3060
 Hostname: pve-1
 IP:       192.168.20.100
 ```
 
-The host is currently operating as a standalone Proxmox server rather than part of a Proxmox cluster.
+pve-1 is the primary infrastructure and compute host.
 
-Proxmox provides the virtualisation and container infrastructure used by the homelab's core services.
-
----
-
-## Proxmox Host
-
-### Dell OptiPlex 3060
-
-The 3060 is currently the primary homelab compute host.
-
-Its primary responsibilities are:
+Its responsibilities include:
 
 * Network infrastructure
 * DNS
@@ -31,416 +87,397 @@ Its primary responsibilities are:
 * Remote access
 * Media services
 * Monitoring
+* Homarr (planned)
 
-The current LXC allocation is:
+pve-1 also contains the homelab's existing Nginx reverse-proxy infrastructure.
 
-| VMID | Hostname       | Purpose                          | IP              |
-| ---: | -------------- | -------------------------------- | --------------- |
-|  100 | `pihole-nginx` | Pi-hole, Unbound, Nginx and DDNS | `192.168.20.99` |
-|  101 | `netbird`      | Private remote access            | `192.168.20.97` |
-|  102 | `jellyfin`     | Media server                     | `192.168.20.98` |
-|  104 | `beszel`       | System monitoring                | `192.168.20.96` |
-|  105 | `uptime-kuma`  | Service monitoring               | `192.168.20.95` |
+## Existing LXC Services
 
-VMID 103 is intentionally unused at present and is reserved for the planned media stack.
+| VMID | Hostname       | Purpose                              | IP              |
+| ---: | -------------- | ------------------------------------ | --------------- |
+|  100 | `pihole-nginx` | Pi-hole, Unbound, Nginx and DDNS     | `192.168.20.99` |
+|  101 | `netbird`      | Private remote access / routing peer | `192.168.20.97` |
+|  102 | `jellyfin`     | Media server                         | `192.168.20.98` |
+|  104 | `beszel`       | System monitoring                    | `192.168.20.96` |
+|  105 | `uptime-kuma`  | Service monitoring                   | `192.168.20.95` |
+
+VMID 103 remains unused.
+
+VMID 107 is reserved for the planned Homarr deployment.
 
 ---
 
-## LXC Containers
+# Proxmox Host — pve-2
 
-The majority of the current homelab services run as Linux Containers (LXC).
-
-LXC provides lightweight operating-system-level virtualisation.
-
-Compared with a full virtual machine, containers share the host kernel and generally require fewer resources.
-
-This makes LXC suitable for many of the relatively lightweight services in the homelab.
-
-### CT 100 — pihole-nginx
+## Hardware
 
 ```text
-VMID:     100
-Hostname: pihole-nginx
-IP:       192.168.20.99
+Model: Dell OptiPlex 9020 SFF
+Hostname: pve-2
+IP:       192.168.20.101
 ```
 
-CT 100 hosts several closely related network services:
-
-* Pi-hole
-* Unbound
-* Nginx
-* ddclient
-
-The services share the same container because they form the primary DNS, HTTPS and DDNS infrastructure for the homelab.
-
----
-
-### CT 101 — NetBird
+Hardware:
 
 ```text
-VMID:     101
-Hostname: netbird
-IP:       192.168.20.97
+CPU: Intel Core i7-4770
+Cores: 4 physical / 8 logical
+RAM: 16 GB
+System SSD: Samsung MZ7PC128HA
+SSD capacity: approximately 119 GB
 ```
 
-CT 101 provides private remote access to the homelab using NetBird.
+The 9020 was introduced as the second physical Proxmox host for the homelab.
 
-It allows authorised remote devices to access selected services on the `192.168.20.0/24` network.
+Its primary workload is the Pterodactyl game-server environment.
+
+A separate 4 TB WD Blue `WD40EZRZ` HDD is intended to provide bulk storage/NAS functionality. The drive has not yet been installed.
+
+The planned NAS architecture is a simple filesystem/NFS-based share rather than TrueNAS or OpenMediaVault.
 
 ---
 
-### CT 102 — Jellyfin
+## pve-2 Proxmox Storage
+
+Current local storage:
 
 ```text
-VMID:     102
-Hostname: jellyfin
-IP:       192.168.20.98
+local
+├── Type: directory
+├── Capacity: approximately 40.5 GB
+└── Available: approximately 33.9 GB
+
+local-lvm
+├── Type: LVM-thin
+├── Capacity: approximately 56.5 GB available
+└── Used: 0 GB at initial deployment
 ```
 
-CT 102 runs Jellyfin.
+The Proxmox installation resides on the 128 GB-class SSD.
 
-Jellyfin remains on the 3060 because the host provides access to its Intel integrated GPU for hardware-accelerated media transcoding.
-
-The future NAS will provide storage to the media services, while Jellyfin remains on the compute host.
+The future 4 TB HDD is intended for bulk file storage and NFS exports rather than Pterodactyl application storage.
 
 ---
 
-### CT 104 — Beszel
+# Network Configuration
+
+Both Proxmox nodes are connected to the existing homelab LAN:
 
 ```text
-VMID:     104
-Hostname: beszel
-IP:       192.168.20.96
+192.168.20.0/24
 ```
 
-CT 104 runs Beszel for system-level monitoring.
+The current network is still based around the existing ISP router.
 
-It provides visibility into system resource usage and health.
+A managed network switch is planned for a future infrastructure upgrade.
 
----
-
-### CT 105 — Uptime Kuma
+The current model is:
 
 ```text
-VMID:     105
-Hostname: uptime-kuma
-IP:       192.168.20.95
-```
-
-CT 105 runs Uptime Kuma for service availability monitoring.
-
-It is used to monitor whether services and network endpoints remain reachable.
-
----
-
-## Container Networking
-
-The LXC containers are connected to the homelab's `192.168.20.0/24` network.
-
-This allows containers to communicate directly with one another.
-
-For example:
-
-```text
-CT 100
-192.168.20.99
+ISP Router
      │
-     │ HTTP
-     ▼
-CT 102
-192.168.20.98
-Jellyfin
+     ├── pve-1
+     │    └── 192.168.20.100
+     │
+     └── pve-2
+          └── 192.168.20.101
 ```
 
-Nginx on CT 100 can therefore reverse proxy requests to Jellyfin without requiring the services to communicate through the public Internet.
-
-The same principle applies to other internal services.
+Both Proxmox systems use `vmbr0` for their virtualised network connectivity.
 
 ---
 
-## Container Management
+# Proxmox Cluster Integration
 
-Proxmox provides the `pct` command for managing LXC containers.
+The Dell OptiPlex 9020 was installed with Proxmox VE and subsequently integrated into the existing `homelab` cluster.
 
-The most useful commands for this homelab include:
+The resulting cluster is:
 
-### List containers
-
-```bash
-pct list
+```text
+homelab
+│
+├── pve-1
+│   └── 192.168.20.100
+│
+└── pve-2
+    └── 192.168.20.101
 ```
 
-Displays the LXC containers configured on the Proxmox host, including their VMIDs, status and hostnames.
+The cluster does not currently use HA.
+
+This means that the cluster provides centralised management but does not automatically migrate or restart workloads if a physical host fails.
 
 ---
 
-### Container status
+# Virtual Machines
 
-```bash
-pct status 100
+Proxmox uses KVM/QEMU for full virtual machines.
+
+## VM 108 — Pterodactyl
+
+VMID:
+
+```text
+108
 ```
 
-Checks the current state of CT 100.
+Host:
 
-The VMID can be replaced with another container's VMID.
-
-For example:
-
-```bash
-pct status 102
+```text
+pve-2
 ```
 
-checks Jellyfin.
+Hostname:
+
+```text
+pterodactyl
+```
+
+IP:
+
+```text
+192.168.20.111
+```
+
+Purpose:
+
+```text
+Pterodactyl game-server management
+```
+
+### VM Configuration
+
+```text
+Operating system: Debian 13 (Trixie)
+Firmware: OVMF / UEFI
+Machine: Q35
+CPU: 6 vCPU
+CPU type: host
+Sockets: 1
+Cores: 6
+RAM: 12 GB
+Disk: 40 GB
+Storage: local-lvm
+Network: VirtIO
+Bridge: vmbr0
+SCSI controller: VirtIO SCSI single
+QEMU Guest Agent: enabled
+NUMA: disabled
+Memory ballooning: disabled
+Nested virtualisation: disabled
+```
+
+Disk configuration:
+
+```text
+Bus: SCSI
+Storage: local-lvm
+Capacity: 40 GB
+Cache: none
+Discard: enabled
+IO thread: enabled
+SSD emulation: enabled
+Backup: enabled
+```
+
+The VM is intentionally headless.
+
+Debian was installed without a desktop environment. SSH server and standard system utilities were installed.
 
 ---
 
-### Start a container
+# VM 108 Networking
 
-```bash
-pct start 100
+The Pterodactyl VM currently uses:
+
+```text
+Interface: ens18
+IPv4:      192.168.20.111/24
 ```
 
-Starts the specified LXC container.
+SSH access is available using:
+
+```bash
+ssh robyn@192.168.20.111
+```
+
+The VM's hostname is:
+
+```text
+pterodactyl
+```
+
+The VM currently receives its LAN address through DHCP. A permanent DHCP reservation/static addressing arrangement can be implemented later.
 
 ---
 
-### Stop a container
+# VM 108 Base Configuration
 
-```bash
-pct stop 100
+The Debian installation was verified as:
+
+```text
+Debian GNU/Linux 13 (Trixie)
+Kernel: 6.12.107+deb13-amd64
+Virtualisation: KVM
 ```
 
-Stops the specified LXC container.
+The initial user account is:
+
+```text
+robyn
+```
+
+`sudo` was installed and the user was added to the sudo group.
+
+The VM is administered primarily through SSH.
 
 ---
 
-### Enter a container
+# Future Storage Architecture
 
-```bash
-pct enter 100
+The Dell OptiPlex 9020 is intended to provide both compute and bulk storage.
+
+The intended architecture is:
+
+```text
+Dell OptiPlex 9020
+│
+├── Proxmox
+│
+├── 4 TB HDD
+│   └── NFS / file share
+│
+└── VM 108
+    └── Pterodactyl
 ```
 
-Opens a shell inside the specified container.
+The 4 TB HDD is intended to be a simple network file share.
 
-This is useful when performing configuration or troubleshooting from the Proxmox host.
+It is not intended to host the Pterodactyl VM itself.
 
-For example:
-
-```bash
-pct enter 100
-```
-
-enters the Pi-hole/NGINX container.
+The Pterodactyl VM currently uses the 9020's system SSD.
 
 ---
 
-### Container configuration
+# Proxmox Management Commands
+
+Useful commands include:
 
 ```bash
-pct config 100
+pvecm status
 ```
 
-Displays the Proxmox configuration for a container.
+Check cluster status.
 
-This can be useful for checking:
+```bash
+pvecm nodes
+```
 
-* Network configuration
-* Storage mounts
-* Container features
-* Resource limits
-* Startup configuration
-
----
-
-## Virtual Machines
-
-Proxmox also supports full virtual machines through KVM/QEMU.
-
-The `qm` command is used to manage these virtual machines.
-
-For example:
+List cluster nodes.
 
 ```bash
 qm list
 ```
 
-lists the virtual machines configured on the Proxmox host.
+List virtual machines.
 
-The homelab does not currently rely on a large number of virtual machines.
-
-A future Pterodactyl installation is planned to run inside a dedicated VM on the Dell OptiPlex 9020.
-
----
-
-## Proxmox Storage
-
-The current Proxmox host provides the storage used by its local containers.
-
-The future storage architecture will separate compute from bulk storage.
-
-The planned model is:
-
-```text
-Dell OptiPlex 3060
-└── Proxmox
-    └── Jellyfin / Services
-             │
-             │ NFS
-             ▼
-Dell OptiPlex 9020
-└── Proxmox
-    └── NAS Storage
+```bash
+qm status 108
 ```
 
-This allows the 9020 to provide storage while the 3060 continues providing compute for services such as Jellyfin.
+Check VM 108 status.
 
----
-
-## Proxmox Host Networking
-
-The Proxmox host is currently connected directly to the ISP router.
-
-The current network path is:
-
-```text
-Internet
-    │
-    ▼
-ISP Router
-    │
-    ▼
-Proxmox 3060
-    │
-    ├── CT 100
-    ├── CT 101
-    ├── CT 102
-    ├── CT 104
-    └── CT 105
+```bash
+qm config 108
 ```
 
-A network switch is planned but is not currently installed.
+Display VM 108 configuration.
 
-The future switch will allow the 3060 and 9020 to share the same physical network infrastructure.
-
----
-
-## Proxmox Cluster Status
-
-The 3060 is currently a standalone Proxmox host.
-
-There is no Proxmox cluster at present.
-
-This is intentional because the homelab currently consists of a single active Proxmox host.
-
-The planned 9020 does not automatically imply that the two systems will form a cluster. The final architecture will be determined based on the storage and workload requirements of the homelab.
-
----
-
-## Future Proxmox Architecture
-
-The planned infrastructure will eventually consist of two physical Proxmox systems:
-
-```text
-Dell OptiPlex 3060
-└── Proxmox
-    ├── Infrastructure
-    ├── Jellyfin
-    └── Monitoring
-
-
-Dell OptiPlex 9020
-└── Proxmox
-    ├── NAS / Storage
-    └── Pterodactyl VM
+```bash
+qm start 108
 ```
 
-The 9020 is planned but is not currently part of the operational Proxmox infrastructure.
+Start VM 108.
 
----
-
-## Troubleshooting Approach
-
-When troubleshooting a Proxmox service, the investigation should generally proceed from the host toward the container and then toward the application.
-
-```text
-Proxmox host
-     ↓
-Container state
-     ↓
-Container network
-     ↓
-Service process
-     ↓
-Service port
-     ↓
-Application
+```bash
+qm stop 108
 ```
 
-For example, if Jellyfin becomes unavailable:
+Stop VM 108.
 
-1. Check whether CT 102 is running.
-2. Check the container's network connectivity.
-3. Check whether Jellyfin is running.
-4. Check whether the expected port is listening.
-5. Test access directly.
-6. Check Nginx if the direct service works but HTTPS does not.
+```bash
+ip addr
+```
 
-This separates Proxmox/container problems from application problems.
+Inspect network interfaces.
 
----
+```bash
+ip route
+```
 
-## Key Commands
+Inspect routing.
 
-The following commands form the core Proxmox troubleshooting toolkit used by this homelab.
+```bash
+ss -tulpn
+```
 
-| Command             | Purpose                              |
-| ------------------- | ------------------------------------ |
-| `pct list`          | List LXC containers                  |
-| `pct status <VMID>` | Check container status               |
-| `pct start <VMID>`  | Start an LXC container               |
-| `pct stop <VMID>`   | Stop an LXC container                |
-| `pct enter <VMID>`  | Open a shell inside a container      |
-| `pct config <VMID>` | Display container configuration      |
-| `qm list`           | List virtual machines                |
-| `qm status <VMID>`  | Check VM status                      |
-| `ip addr`           | Inspect network interfaces           |
-| `ip route`          | Inspect routing                      |
-| `ping <address>`    | Test network connectivity            |
-| `ss -tulpn`         | Inspect listening services and ports |
-
-Commands should generally be run on the Proxmox host unless otherwise stated.
+Inspect listening services.
 
 ---
 
-## Documentation and Configuration Philosophy
+# Current Proxmox Status
 
-The Proxmox configuration should be documented alongside the services running on it.
+```text
+pve-1:
+    Operational
+    192.168.20.100
 
-When a container is created or modified, the documentation should record:
+pve-2:
+    Operational
+    192.168.20.101
+
+Cluster:
+    homelab
+    Operational
+    2 nodes
+    HA disabled
+
+Pterodactyl VM:
+    VMID 108
+    Operational
+    192.168.20.111
+
+4 TB HDD:
+    Not yet installed
+    Planned for NFS/file sharing
+```
+
+---
+
+# Documentation Philosophy
+
+When infrastructure changes, this document should be updated to reflect the actual deployed state.
+
+Document:
 
 * VMID
 * Hostname
 * IP address
+* Physical host
 * Purpose
+* CPU/RAM allocation
+* Storage
 * Network configuration
-* Storage configuration
-* Important resource allocations
-* Services running inside the container
-* Relevant troubleshooting procedures
+* Important services
+* Cluster membership
+* Important troubleshooting commands
 
-Secrets such as passwords, private keys and API tokens must not be committed to Git.
+Do not commit:
 
----
+* Passwords
+* Private keys
+* API tokens
+* Database credentials
+* Other secrets
 
-## Future Updates
-
-This document should be updated when:
-
-* The 9020 is deployed
-* Additional LXC containers are created
-* The media stack is deployed
-* Pterodactyl is deployed
-* Proxmox networking changes
-* Storage configuration changes
-* A second Proxmox host is introduced
-* A cluster is created, if one is eventually required
+The documentation should distinguish between **deployed**, **in progress**, and **planned** infrastructure rather than presenting planned architecture as operational.
