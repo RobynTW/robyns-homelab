@@ -2,656 +2,303 @@
 
 ## Overview
 
-Pi-hole provides the primary DNS service for the homelab.
+CT100 provides the homelab's primary DNS filtering and local DNS services.
 
-It runs inside **CT 100** on the Dell OptiPlex 3060:
+Hostname:
 
-```text
-VMID:     100
-Hostname: pihole
-IP:       192.168.20.99
-```
+    pihole
 
-Pi-hole is responsible for:
+IP address:
 
-* Providing DNS to local clients
-* DNS filtering and blocking
-* Providing local DNS records
-* Forwarding external DNS queries to Unbound
-* Providing DNS visibility and query statistics
+    192.168.20.99
 
-Pi-hole is also the DNS endpoint used by authorised NetBird clients when accessing the homelab remotely.
+VMID:
 
----
+    CT100
 
-## DNS Architecture
+Primary services:
 
-The homelab uses Pi-hole as the client-facing DNS server and Unbound as the recursive resolver.
+- Pi-hole
+- Unbound
+- ddclient
 
-```text
-Client
-  │
-  │ DNS :53
-  ▼
-Pi-hole
-192.168.20.99
-  │
-  │ 127.0.0.1:5335
-  ▼
-Unbound
-  │
-  │ Recursive DNS
-  ▼
-DNS hierarchy
-```
-
-This provides a clear separation between:
-
-* **Pi-hole** — client DNS service, filtering and local records
-* **Unbound** — recursive DNS resolution and DNSSEC validation
-
-Unbound is not directly exposed to the LAN.
-
----
-
-## Container Services
-
-CT 100 is dedicated to DNS-related infrastructure.
-
-It hosts:
-
-* Pi-hole
-* Unbound
-* ddclient
-
-Nginx and Certbot were previously hosted in this container but have been moved to the dedicated **CT 106** Nginx container.
-
-The final service separation is:
-
-```text
-CT 100 — pihole
-├── Pi-hole
-├── Unbound
-└── ddclient
-
-CT 106 — nginx
-├── Nginx
-└── Certbot
-```
-
-This separates DNS infrastructure from the homelab's reverse-proxy and certificate-management infrastructure.
-
----
+Pi-hole provides DNS filtering and internal DNS overrides for LAN and NetBird clients.
 
 ## Network Configuration
 
-Pi-hole listens on the standard DNS port:
+LAN:
 
-```text
-TCP 53
-UDP 53
-```
+    192.168.20.0/24
 
-The container's address is:
+Pi-hole:
 
-```text
-192.168.20.99
-```
+    192.168.20.99:53
 
-Clients therefore use:
+Router:
 
-```text
-192.168.20.99
-```
+    192.168.20.1
 
-as their DNS server.
+Pi-hole is the primary DNS server used by the homelab.
 
-Pi-hole forwards external queries to Unbound:
+NetBird clients are also configured to use Pi-hole for DNS.
 
-```text
-127.0.0.1#5335
-```
+## Unbound
 
-This means the external DNS flow is:
+Unbound runs locally on CT100.
 
-```text
-Client
-  │
-  ▼
-192.168.20.99:53
-  │
-  ▼
-127.0.0.1:5335
-  │
-  ▼
-Unbound
-```
+    Pi-hole
+    192.168.20.99:53
+        |
+        v
+    Unbound
+    127.0.0.1:5335
 
----
+Pi-hole forwards recursive DNS queries to Unbound.
 
-## Pi-hole Web Interface
+Unbound provides recursive DNS resolution rather than relying directly on a third-party public recursive resolver.
 
-Pi-hole's web interface originally used the standard HTTP/HTTPS ports.
+Further details are documented in `05-unbound.md`.
 
-Because Nginx is the homelab's central reverse proxy and now runs in a separate container, Pi-hole's own web server uses port `8080`.
+## Local DNS
 
-The relevant configuration is:
+Pi-hole provides local DNS records for internal services.
 
-```toml
-port = "8080o"
-```
+The current internal DNS records point service hostnames to CT106, the central Nginx reverse proxy.
 
-Pi-hole therefore provides its local web interface at:
+| Hostname | Address | Purpose |
+|---|---|---|
+| `jellyfin.robynshomelab.dev` | `192.168.20.94` | Jellyfin reverse proxy |
+| `status.robynshomelab.dev` | `192.168.20.94` | Uptime Kuma reverse proxy |
+| `beszel.robynshomelab.dev` | `192.168.20.94` | Beszel reverse proxy |
+| `pihole.robynshomelab.dev` | `192.168.20.94` | Pi-hole reverse proxy |
+| `panel.robynshomelab.dev` | `192.168.20.94` | Pterodactyl reverse proxy |
 
-```text
-http://192.168.20.99:8080
-```
-
-Nginx provides the HTTPS endpoint from **CT 106**:
-
-```text
-https://pihole.robynshomelab.dev
-```
-
-The resulting flow is:
-
-```text
-Client
-  │
-  │ HTTPS :443
-  ▼
-Nginx
-192.168.20.94
-  │
-  │ HTTP :8080
-  ▼
-Pi-hole
-192.168.20.99
-```
+This creates split-DNS behaviour for services that also have public Cloudflare DNS records.
 
-This keeps Pi-hole's web server separate from Nginx's ports 80 and 443.
+## Pterodactyl Panel DNS
 
----
+The Pterodactyl Panel uses:
 
-## Local DNS Records
+    panel.robynshomelab.dev
 
-Pi-hole provides internal DNS records for homelab services.
+For internal clients, Pi-hole resolves this hostname to:
 
-Current records include:
+    192.168.20.94
 
-| Hostname                     |         Address | Purpose                    |
-| ---------------------------- | --------------: | -------------------------- |
-| `jellyfin.robynshomelab.dev` | `192.168.20.94` | Jellyfin HTTPS endpoint    |
-| `status.robynshomelab.dev`   | `192.168.20.94` | Uptime Kuma HTTPS endpoint |
-| `beszel.robynshomelab.dev`   | `192.168.20.94` | Beszel HTTPS endpoint      |
-| `pihole.robynshomelab.dev`   | `192.168.20.94` | Pi-hole HTTPS endpoint     |
+The request then reaches CT106:
 
-These records intentionally point to Nginx rather than directly to the backend containers.
-
-For example:
+    Client
+      |
+      | panel.robynshomelab.dev
+      v
+    Pi-hole
+    192.168.20.99
+      |
+      | 192.168.20.94
+      v
+    CT106 Nginx
+      |
+      v
+    VM108
+    192.168.20.111
 
-```text
-jellyfin.robynshomelab.dev
-        │
-        ▼
-192.168.20.94
-     Nginx
-        │
-        ▼
-192.168.20.98:8096
-     Jellyfin
-```
+The public Cloudflare record remains separate and is not overridden by Pi-hole for external clients.
 
-This allows the same hostname to be used for the HTTPS reverse proxy regardless of the backend service's internal port.
+## DNS Filtering
 
----
+Pi-hole provides network-wide DNS filtering.
 
-## Pi-hole and NetBird
+Blocked domains are returned according to the Pi-hole filtering configuration.
 
-NetBird clients use Pi-hole as their DNS server when remote access is enabled.
+A blocked DNS request may therefore return an address such as:
 
-The relevant traffic path is:
+    0.0.0.0
 
-```text
-Remote device
-      │
-      │ NetBird
-      ▼
-CT 101 - NetBird
-      │
-      ▼
-192.168.20.99:53
-      │
-      ▼
-Pi-hole
-      │
-      ▼
-Unbound
-```
+or:
 
-This allows a remote device such as an iPhone to resolve the same internal homelab hostnames that are available from the local network.
+    ::
 
-For example:
+This is expected filtering behaviour and does not necessarily indicate a DNS failure.
 
-```text
-iPhone
-  │
-  │ NetBird
-  ▼
-Pi-hole
-  │
-  ▼
-jellyfin.robynshomelab.dev
-  │
-  ▼
-192.168.20.94
-  │
-  ▼
-Nginx
-  │
-  ▼
-Jellyfin
-```
+## NetBird DNS
 
----
+NetBird clients use Pi-hole as their DNS server:
 
-## Pi-hole and Nginx
+    192.168.20.99:53
 
-Pi-hole and Nginx now run in separate containers.
+This provides NetBird clients with:
 
-```text
-CT 100 — pihole
-────────────────
-Pi-hole DNS
-:53
+- Pi-hole filtering
+- Internal service hostname resolution
+- Access to the homelab's DNS architecture
 
-Pi-hole Web
-:8080
+The NetBird DNS configuration uses Pi-hole as the global/default nameserver for:
 
+    [.]
 
-CT 106 — nginx
-────────────────
-Nginx HTTP
-:80
+This means general DNS queries from NetBird clients are routed through Pi-hole.
 
-Nginx HTTPS
-:443
-```
+## DDNS
 
-This separation prevents the DNS container from also being responsible for reverse-proxy and certificate-management duties.
+CT100 also runs ddclient.
 
-Nginx proxies the public HTTPS hostnames to their respective internal services.
+ddclient updates the Cloudflare DNS record:
 
----
+    home.robynshomelab.dev
 
-## Pi-hole Configuration
+The DDNS configuration uses a dedicated Cloudflare API credential.
 
-The Pi-hole web server port is configured in:
+The credential is stored locally on CT100 and is not committed to GitHub.
 
-```text
-/etc/pihole/pihole.toml
-```
+DDNS details are documented in `14-ddns.md`.
 
-The relevant setting is:
+## Web Interface
 
-```toml
-port = "8080o"
-```
+The Pi-hole web interface is hosted locally on CT100.
 
-The `o` suffix specifies the HTTP interface behaviour used by Pi-hole.
+Local backend address:
 
-Pi-hole's web server domain was also configured so that the reverse-proxied hostname is recognised correctly:
+    192.168.20.99:8080
 
-```bash
-pihole-FTL --config webserver.domain "pihole.robynshomelab.dev"
-```
+The interface is exposed through the central Nginx reverse proxy.
 
-After changing the setting, Pi-hole FTL was restarted:
+Internal hostname:
 
-```bash
-systemctl restart pihole-FTL
-```
+    pihole.robynshomelab.dev
 
-This resolved the issue where the Pi-hole web interface did not correctly recognise the reverse-proxied hostname.
+The access path is:
 
----
+    Client
+      |
+      | HTTPS
+      v
+    CT106 Nginx
+    192.168.20.94
+      |
+      | HTTP
+      v
+    CT100 Pi-hole
+    192.168.20.99:8080
 
-## Upstream DNS
+## Reverse Proxy
 
-Pi-hole uses Unbound as its upstream resolver.
+Nginx was previously hosted on CT100.
 
-The configured upstream is:
+That architecture is no longer current.
 
-```text
-127.0.0.1#5335
-```
+The current architecture is:
 
-The Pi-hole configuration was changed using:
+    CT100
+    192.168.20.99
+      |
+      +--> Pi-hole
+      +--> Unbound
+      +--> ddclient
 
-```bash
-pihole-FTL --config dns.upstreams '[ "127.0.0.1#5335" ]'
-```
+    CT106
+    192.168.20.94
+      |
+      +--> Nginx
+      +--> Certbot
+      |
+      +--> Pi-hole reverse proxy
 
-The resulting architecture is:
+This separation keeps DNS infrastructure independent from the central reverse proxy and TLS infrastructure.
 
-```text
-Client
-  │
-  ▼
-Pi-hole :53
-  │
-  ▼
-Unbound :5335
-  │
-  ▼
-Internet DNS hierarchy
-```
+## Security
 
-Pi-hole therefore does not rely on a conventional third-party recursive DNS resolver for external lookups.
+The Pi-hole container contains DNS infrastructure and Cloudflare DDNS credentials.
 
----
+Credentials must remain local to the host.
 
-## Testing
+Do not document or commit:
 
-DNS functionality should be tested at several layers.
+- Cloudflare API tokens
+- Passwords
+- Session credentials
+- Private keys
+- Authentication secrets
 
-### Test Pi-hole
-
-```bash
-dig en.wikipedia.org @127.0.0.1
-```
-
-This queries the local Pi-hole DNS service.
-
-A successful response confirms that Pi-hole is answering DNS requests.
-
----
-
-### Test Unbound Directly
-
-```bash
-dig pi-hole.net @127.0.0.1 -p 5335
-```
-
-This bypasses Pi-hole and queries Unbound directly.
-
-A successful response confirms that Unbound itself can perform recursive DNS resolution.
-
----
-
-### Test Local DNS
-
-```bash
-dig jellyfin.robynshomelab.dev @127.0.0.1
-```
-
-This verifies that Pi-hole is returning the internal DNS record.
-
-The expected address is:
-
-```text
-192.168.20.94
-```
-
-The response should also contain the `aa` flag, indicating that the answer is authoritative.
-
----
-
-### Test DNSSEC
-
-A valid DNSSEC-signed domain can be queried directly against Unbound:
-
-```bash
-dig +ad dnssec.works @127.0.0.1 -p 5335
-```
-
-The response should contain the `ad` flag when DNSSEC validation succeeds.
-
-A deliberately broken DNSSEC test domain can be used to confirm that validation failures are rejected:
-
-```bash
-dig fail01.dnssec.works @127.0.0.1 -p 5335
-```
-
-The expected result is:
-
-```text
-SERVFAIL
-```
-
----
+Configuration examples should use placeholders where credentials are required.
 
 ## Troubleshooting
 
-### Pi-hole DNS unavailable
+### Test Pi-hole DNS
 
-Check whether Pi-hole FTL is running:
+From a LAN client:
 
-```bash
-systemctl status pihole-FTL
-```
+    nslookup example.com 192.168.20.99
 
-Check whether port 53 is listening:
+or:
 
-```bash
-ss -tulpn | grep ':53'
-```
+    dig @192.168.20.99 example.com
 
-Then test DNS locally:
-
-```bash
-dig example.com @127.0.0.1
-```
-
----
-
-### Unbound unavailable
-
-Check its service:
-
-```bash
-systemctl status unbound
-```
-
-Check the configuration:
-
-```bash
-unbound-checkconf
-```
-
-A successful configuration check should report no errors.
-
-Test Unbound directly:
-
-```bash
-dig example.com @127.0.0.1 -p 5335
-```
-
----
-
-### Pi-hole web interface unavailable
-
-Check the FTL service:
-
-```bash
-systemctl status pihole-FTL
-```
-
-Check whether port 8080 is listening:
-
-```bash
-ss -tulpn | grep ':8080'
-```
-
-Test the local web interface:
-
-```bash
-curl -I http://127.0.0.1:8080
-```
-
-If the local interface works but the HTTPS hostname does not, investigate Nginx and TLS rather than Pi-hole itself.
-
----
-
-### Reverse-proxy hostname problem
-
-Check the configured Pi-hole webserver domain:
-
-```bash
-pihole-FTL --config webserver.domain
-```
-
-If necessary, set it again:
-
-```bash
-pihole-FTL --config webserver.domain "pihole.robynshomelab.dev"
-```
-
-Then restart FTL:
-
-```bash
-systemctl restart pihole-FTL
-```
-
----
-
-### HTTPS endpoint unavailable
-
-If the local Pi-hole web interface works but:
-
-```text
-https://pihole.robynshomelab.dev
-```
-
-does not, check the dedicated Nginx container rather than Pi-hole.
-
-Nginx is located at:
-
-```text
-CT 106
-192.168.20.94
-```
-
-The expected path is:
-
-```text
-Client
-  │
-  ▼
-Pi-hole DNS
-192.168.20.99
-  │
-  ▼
-192.168.20.94
-  │
-  ▼
-Nginx :443
-  │
-  ▼
-192.168.20.99:8080
-  │
-  ▼
-Pi-hole
-```
-
----
-
-## Key Commands
-
-| Command                              | Purpose                                  |
-| ------------------------------------ | ---------------------------------------- |
-| `pihole-FTL --config ...`            | Read or modify Pi-hole FTL configuration |
-| `systemctl status pihole-FTL`        | Check Pi-hole's FTL service              |
-| `systemctl restart pihole-FTL`       | Restart Pi-hole FTL                      |
-| `dig example.com @127.0.0.1`         | Test Pi-hole DNS                         |
-| `dig example.com @127.0.0.1 -p 5335` | Test Unbound directly                    |
-| `ss -tulpn`                          | Show listening network sockets           |
-| `curl -I http://127.0.0.1:8080`      | Test Pi-hole's local web interface       |
-| `unbound-checkconf`                  | Validate Unbound configuration           |
-
-### Important `dig` options
-
-The DNS testing commands used throughout this homelab are worth understanding.
-
-```text
-@server
-```
-
-Specifies which DNS server should receive the query.
+### Test internal DNS
 
 For example:
 
-```bash
-dig example.com @127.0.0.1
-```
+    dig @192.168.20.99 panel.robynshomelab.dev
 
-queries the local machine.
+The expected internal result is:
 
-```text
--p port
-```
+    192.168.20.94
 
-Specifies a non-standard DNS port.
+### Test NetBird DNS
 
-For example:
+From a NetBird client, confirm that DNS queries are being sent to:
 
-```bash
-dig example.com @127.0.0.1 -p 5335
-```
+    192.168.20.99
 
-queries Unbound instead of the normal DNS service on port 53.
+### Test Unbound
 
-```text
-+short
-```
+From CT100:
 
-Displays a simplified answer.
+    dig @127.0.0.1 -p 5335 example.com
 
-For example:
+### Check Pi-hole service
 
-```bash
-dig jellyfin.robynshomelab.dev +short
-```
+On CT100:
 
-is useful when only the returned IP address is required.
+    systemctl status pihole-FTL
 
-```text
-+ad
-```
+### Check Unbound
 
-Requests that the DNSSEC authenticated-data status be displayed.
+On CT100:
 
----
+    systemctl status unbound
 
-## Security Considerations
+### Check ddclient
 
-Pi-hole is a core infrastructure service and should not be exposed directly to the public Internet.
+On CT100:
 
-The public Cloudflare DNS zone does not contain the internal `192.168.20.x` service addresses.
+    systemctl status ddclient
 
-Remote access to Pi-hole is provided through the private NetBird network.
+## Current Architecture
 
-The Cloudflare API credentials used for related infrastructure are stored outside the Git repository and must never be committed.
+    LAN Client
+        |
+        v
+    Pi-hole
+    192.168.20.99:53
+        |
+        +--> Local DNS overrides
+        |
+        +--> Unbound
+        |    127.0.0.1:5335
+        |
+        +--> Internet DNS resolution
 
-The Cloudflare ACME credential used by Certbot is stored only on the dedicated Nginx container:
-
-```text
-CT 106
-/root/.secrets/certbot/cloudflare.ini
-```
-
-It is root-owned with restrictive permissions and is excluded from Git.
-
----
-
-## Future Updates
-
-This document should be updated when:
-
-* Pi-hole configuration changes
-* DNS filtering policies are changed
-* Additional local DNS records are created
-* NetBird DNS integration changes
-* Pi-hole is moved to another host
-* DNS architecture changes
-* Additional DNS security measures are implemented
+    Internal HTTPS request
+        |
+        v
+    panel.robynshomelab.dev
+        |
+        v
+    Pi-hole
+        |
+        | 192.168.20.94
+        v
+    CT106 Nginx
+        |
+        v
+    VM108 Pterodactyl

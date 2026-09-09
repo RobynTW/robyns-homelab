@@ -2,830 +2,380 @@
 
 ## Overview
 
-Nginx is the web server and reverse proxy used by the homelab.
+CT106 provides the homelab's central Nginx reverse proxy and TLS termination.
 
-It runs inside **CT 100** alongside Pi-hole, Unbound and ddclient:
+Hostname:
 
-```text
-VMID:     100
-Hostname: pihole-nginx
-IP:       192.168.20.99
-```
+    nginx
 
-Nginx provides the HTTPS entry point for internal homelab services.
+IP address:
 
-Its primary responsibilities are:
+    192.168.20.94
 
-* HTTP → HTTPS redirection
-* TLS termination
-* Reverse proxying
-* Routing requests based on hostname
-* Providing a single HTTPS endpoint for multiple services
+VMID:
 
-The current architecture is:
+    CT106
 
-```text
-Client
-   │
-   │ HTTPS :443
-   ▼
-Nginx
-192.168.20.99
-   │
-   ├── jellyfin.robynshomelab.dev
-   │       └── 192.168.20.98:8096
-   │
-   ├── status.robynshomelab.dev
-   │       └── 192.168.20.95:3001
-   │
-   ├── beszel.robynshomelab.dev
-   │       └── 192.168.20.96:8090
-   │
-   └── pihole.robynshomelab.dev
-           └── 192.168.20.99:8080
-```
+Primary services:
 
----
+- Nginx
+- Certbot
 
-# Why Nginx Is Used
+Nginx provides the central HTTPS entry point for internal homelab services.
 
-Without a reverse proxy, each service would need to be accessed using its own IP address and port.
+## Architecture
 
-For example:
+The current reverse-proxy architecture is:
 
-```text
-http://192.168.20.98:8096
-http://192.168.20.95:3001
-http://192.168.20.96:8090
-```
+    Client
+      |
+      | HTTPS
+      v
+    CT106 Nginx
+    192.168.20.94
+      |
+      +--> Jellyfin
+      |    192.168.20.98:8096
+      |
+      +--> Uptime Kuma
+      |    192.168.20.95:3001
+      |
+      +--> Beszel
+      |    192.168.20.96:8090
+      |
+      +--> Pi-hole
+      |    192.168.20.99:8080
+      |
+      +--> Pterodactyl Panel
+           192.168.20.111:80
 
-Nginx allows the services to instead be accessed using consistent hostnames:
+Nginx terminates HTTPS and proxies requests to the internal service over HTTP.
 
-```text
-https://jellyfin.robynshomelab.dev
-https://status.robynshomelab.dev
-https://beszel.robynshomelab.dev
-https://pihole.robynshomelab.dev
-```
+## Service Routing
 
-The client connects to Nginx, and Nginx determines which backend should receive the request.
+Current reverse-proxy hostnames:
 
----
+| Hostname | Backend | Purpose |
+|---|---|---|
+| `jellyfin.robynshomelab.dev` | `192.168.20.98:8096` | Jellyfin |
+| `status.robynshomelab.dev` | `192.168.20.95:3001` | Uptime Kuma |
+| `beszel.robynshomelab.dev` | `192.168.20.96:8090` | Beszel |
+| `pihole.robynshomelab.dev` | `192.168.20.99:8080` | Pi-hole |
+| `panel.robynshomelab.dev` | `192.168.20.111:80` | Pterodactyl Panel |
 
-# Port Architecture
+All of these hostnames resolve internally to:
 
-Nginx owns the standard web ports:
+    192.168.20.94
 
-```text
-HTTP   :80
-HTTPS  :443
-```
+Pi-hole provides the internal split-DNS records.
 
-Pi-hole's web interface was moved to:
+## Pterodactyl Panel
 
-```text
-HTTP   :8080
-```
+The Pterodactyl Panel is hosted on VM108:
 
-This avoids a port conflict between Pi-hole's web server and Nginx.
+    192.168.20.111
 
-The resulting arrangement is:
+The Panel's configured public hostname is:
 
-```text
-192.168.20.99
+    panel.robynshomelab.dev
 
-Port 53    → Pi-hole DNS
-Port 80    → Nginx
-Port 443   → Nginx HTTPS
-Port 8080  → Pi-hole Web UI
-Port 5335  → Unbound
-```
+The request path is:
 
-This separation allows Nginx to provide HTTPS access to Pi-hole without interfering with Pi-hole's DNS service.
+    Client
+      |
+      | HTTPS
+      v
+    CT106
+    192.168.20.94
+      |
+      | HTTP
+      v
+    VM108
+    192.168.20.111
+      |
+      v
+    Pterodactyl Panel
 
----
+The Panel itself does not terminate HTTPS.
 
-# Nginx Configuration Structure
+CT106 provides TLS termination.
 
-Nginx configuration is stored under:
+## Panel Backend
 
-```text
-/etc/nginx/
-```
+The VM108 local Nginx server listens on:
 
-The homelab uses the Debian-style:
+    192.168.20.111:80
 
-```text
-/etc/nginx/sites-available/
-/etc/nginx/sites-enabled/
-```
+CT106 proxies Panel requests to this backend.
 
-structure.
+The backend remains HTTP because the connection is entirely within the homelab LAN.
 
-Each service has its own configuration file.
+The external client-facing connection remains HTTPS.
 
-Current configurations:
+## TLS
 
-```text
-/etc/nginx/sites-available/jellyfin
-/etc/nginx/sites-available/status
-/etc/nginx/sites-available/beszel
-/etc/nginx/sites-available/pihole
-```
+TLS certificates are managed by Certbot on CT106.
 
-Enabled configurations are represented by symlinks in:
+Cloudflare is used for DNS-01 validation.
 
-```text
-/etc/nginx/sites-enabled/
-```
+The ACME flow is:
 
-This makes it possible to enable or disable individual services without modifying the main Nginx configuration.
+    CT106 Certbot
+        |
+        v
+    Cloudflare DNS
+        |
+        v
+    Let's Encrypt
+        |
+        v
+    CT106
+        |
+        v
+    Nginx HTTPS
 
----
+The Cloudflare API credential used for ACME is stored locally on CT106.
 
-# HTTP to HTTPS Redirect
+It is not stored in GitHub.
 
-Each service has an HTTP server block similar to:
+## Certificates
 
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name jellyfin.robynshomelab.dev;
-    return 301 https://$host$request_uri;
-}
-```
+Current certificates managed by CT106 include:
 
-The purpose is to redirect:
+    jellyfin.robynshomelab.dev
+    status.robynshomelab.dev
+    beszel.robynshomelab.dev
+    pihole.robynshomelab.dev
 
-```text
-http://...
-```
+The Pterodactyl Panel uses:
 
-to:
+    panel.robynshomelab.dev
 
-```text
-https://...
-```
+The Panel certificate is part of the current HTTPS deployment.
 
-The original hostname and URI are preserved.
+## HTTP and HTTPS
 
-For example:
+Nginx listens on:
 
-```text
-http://jellyfin.robynshomelab.dev/library
-```
+    80
+    443
 
-becomes:
+HTTP is used for certificate validation and HTTP-to-HTTPS handling where required.
 
-```text
-https://jellyfin.robynshomelab.dev/library
-```
+Normal service access should use HTTPS.
 
----
+Example:
 
-# TLS Certificates
+    https://panel.robynshomelab.dev
 
-Nginx uses Let's Encrypt certificates issued through Certbot.
+## Internal DNS
 
-Certificates were obtained using Cloudflare DNS-01 validation.
-
-The certificates currently used by Nginx are:
-
-```text
-jellyfin.robynshomelab.dev
-status.robynshomelab.dev
-beszel.robynshomelab.dev
-pihole.robynshomelab.dev
-```
-
-Certificates are stored under:
-
-```text
-/etc/letsencrypt/live/
-```
+Pi-hole provides split DNS for the reverse-proxy hostnames.
 
 For example:
 
-```text
-/etc/letsencrypt/live/jellyfin.robynshomelab.dev/
-```
+    panel.robynshomelab.dev
+        |
+        v
+    192.168.20.94
 
-Each certificate provides:
+The same pattern applies to the other internal services.
 
-```text
-fullchain.pem
-privkey.pem
-```
+This allows clients on the LAN and NetBird network to use consistent hostnames while keeping service traffic inside the homelab.
 
-Nginx references these files in the HTTPS server block.
+## NetBird
 
-Private keys must never be committed to Git.
+NetBird clients can reach CT106 through the existing NetBird routing peer.
 
----
+Current route:
 
-# Jellyfin Reverse Proxy
+    NetBird Client
+        |
+        v
+    CT101
+    192.168.20.97
+        |
+        | 192.168.20.94/32
+        v
+    CT106 Nginx
+    192.168.20.94
+        |
+        v
+    Internal service
 
-Jellyfin is located in CT 102:
+The Pterodactyl Panel therefore does not currently require a direct NetBird route to VM108.
 
-```text
-192.168.20.98:8096
-```
+The existing route to CT106 is sufficient for Panel access.
 
-The Nginx configuration is:
+VM108 will eventually receive its own NetBird peer for game-server networking.
 
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name jellyfin.robynshomelab.dev;
-    return 301 https://$host$request_uri;
-}
+## Security
 
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name jellyfin.robynshomelab.dev;
+The reverse proxy is intended to provide a controlled entry point to internal services.
 
-    ssl_certificate /etc/letsencrypt/live/jellyfin.robynshomelab.dev/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/jellyfin.robynshomelab.dev/privkey.pem;
+Services should not be directly exposed through router port forwarding unless explicitly required.
 
-    location / {
-        proxy_pass http://192.168.20.98:8096;
-        proxy_http_version 1.1;
+The current architecture does not use router port forwarding for the Panel.
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+The Pterodactyl Panel is intended to remain accessible through:
 
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+- LAN
+- NetBird
 
-        proxy_buffering off;
+It is not intended to become a directly internet-accessible service.
 
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-    }
-}
-```
+## Configuration
 
-### Jellyfin-specific considerations
+Nginx configuration is stored under the standard Nginx configuration directories on CT106.
 
-The configuration uses HTTP/1.1 and WebSocket-related headers:
+Site-specific configurations should be kept separate where practical.
 
-```nginx
-proxy_set_header Upgrade $http_upgrade;
-proxy_set_header Connection "upgrade";
-```
+Configuration changes should be tested before reloading Nginx.
 
-These are important for applications that use persistent connections.
+Recommended validation:
 
-Buffering is also disabled:
+    nginx -t
 
-```nginx
-proxy_buffering off;
-```
+If the configuration test succeeds:
 
-and long proxy timeouts are configured:
+    systemctl reload nginx
 
-```nginx
-proxy_read_timeout 3600s;
-proxy_send_timeout 3600s;
-```
+## Service Status
 
-This is appropriate for a media application where connections may remain open for extended periods.
+Check Nginx:
 
----
+    systemctl status nginx
 
-# Uptime Kuma Reverse Proxy
+Check Certbot's renewal timer:
 
-Uptime Kuma runs in CT 105:
+    systemctl status certbot.timer
 
-```text
-192.168.20.95:3001
-```
+Check listening ports:
 
-The Nginx configuration is:
+    ss -lntup | grep -E ':80|:443'
 
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name status.robynshomelab.dev;
-    return 301 https://$host$request_uri;
-}
+## Verification
 
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name status.robynshomelab.dev;
+### Test the local Nginx server
 
-    ssl_certificate /etc/letsencrypt/live/status.robynshomelab.dev/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/status.robynshomelab.dev/privkey.pem;
+On CT106:
 
-    location / {
-        proxy_pass http://192.168.20.95:3001;
-        proxy_http_version 1.1;
+    curl -I http://127.0.0.1
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+### Test the Panel backend
 
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+From CT106:
 
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering off;
-    }
-}
-```
+    curl -I -H "Host: panel.robynshomelab.dev" http://192.168.20.111
 
-Uptime Kuma uses persistent connections for its web interface, so the WebSocket headers are retained.
+A successful HTTP response confirms that CT106 can reach the Panel backend.
 
----
+### Test HTTPS
 
-# Beszel Reverse Proxy
+From an internal client:
 
-Beszel runs in CT 104:
+    curl -I https://panel.robynshomelab.dev
 
-```text
-192.168.20.96:8090
-```
+The response should be served by CT106 with the appropriate TLS certificate.
 
-The Nginx configuration is:
+### Test DNS
 
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name beszel.robynshomelab.dev;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name beszel.robynshomelab.dev;
+From an internal client:
 
-    ssl_certificate /etc/letsencrypt/live/beszel.robynshomelab.dev/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/beszel.robynshomelab.dev/privkey.pem;
+    dig panel.robynshomelab.dev
 
-    location / {
-        proxy_pass http://192.168.20.96:8090;
-        proxy_http_version 1.1;
+The expected internal address is:
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+    192.168.20.94
 
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+## Troubleshooting
 
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering off;
-    }
-}
-```
+### DNS resolves incorrectly
 
----
+Check Pi-hole first.
 
-# Pi-hole Reverse Proxy
+    dig @192.168.20.99 panel.robynshomelab.dev
 
-Pi-hole is hosted in the same CT as Nginx:
+Expected:
 
-```text
-192.168.20.99
-```
+    192.168.20.94
 
-Its web interface listens on:
+### Nginx configuration fails
 
-```text
-192.168.20.99:8080
-```
+Run:
 
-Nginx provides the HTTPS endpoint:
+    nginx -t
 
-```text
-https://pihole.robynshomelab.dev
-```
+Do not reload Nginx until the configuration test succeeds.
 
-The configuration is:
+### Backend connection fails
 
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name pihole.robynshomelab.dev;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name pihole.robynshomelab.dev;
-
-    ssl_certificate /etc/letsencrypt/live/pihole.robynshomelab.dev/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/pihole.robynshomelab.dev/privkey.pem;
+From CT106:
 
-    location / {
-        proxy_pass http://192.168.20.99:8080;
-        proxy_http_version 1.1;
+    curl -I http://192.168.20.111
 
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+If this fails, investigate VM108's local Nginx or Pterodactyl installation.
 
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+### HTTPS certificate problems
 
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering off;
-    }
-}
-```
-
-Because the backend is on the same container, this is effectively:
-
-```text
-Client
-  │
-  ▼
-Nginx :443
-  │
-  ▼
-Pi-hole :8080
-```
+Check:
 
----
+- DNS resolution
+- Certbot configuration
+- Cloudflare DNS-01 credentials
+- Certificate expiry
+- Nginx certificate paths
+- Nginx configuration
 
-# Hostname-Based Routing
+Certbot status:
 
-Nginx determines the backend using the requested hostname.
+    certbot certificates
 
-For example:
+## Historical Architecture
 
-```text
-jellyfin.robynshomelab.dev
-        │
-        ▼
-Nginx
-        │
-        └── 192.168.20.98:8096
-```
+Nginx and Certbot were previously hosted on CT100.
 
-while:
+That architecture has been retired.
 
-```text
-status.robynshomelab.dev
-        │
-        ▼
-Nginx
-        │
-        └── 192.168.20.95:3001
-```
+CT100 is now dedicated to:
 
-This allows multiple services to share ports 80 and 443 without requiring separate public IP addresses.
+    Pi-hole
+    Unbound
+    ddclient
 
----
+CT106 is now dedicated to:
 
-# Local DNS Integration
+    Nginx
+    Certbot
 
-The service hostnames are resolved by Pi-hole.
+This separation is intentional and should be maintained unless the architecture is explicitly redesigned.
 
-Current records include:
+## Current State
 
-```text
-jellyfin.robynshomelab.dev → 192.168.20.99
-status.robynshomelab.dev   → 192.168.20.99
-beszel.robynshomelab.dev   → 192.168.20.99
-pihole.robynshomelab.dev   → 192.168.20.99
-```
+CT106 is the central reverse proxy and TLS termination point for the homelab.
 
-Therefore, an internal client follows this path:
+Current architecture:
 
-```text
-Client
-  │
-  │ DNS
-  ▼
-Pi-hole
-  │
-  └── service hostname → 192.168.20.99
-                         │
-                         ▼
-                       Nginx
-                         │
-                         ▼
-                     Backend LXC
-```
+    Internal Client
+        |
+        | DNS
+        v
+    Pi-hole
+    192.168.20.99
+        |
+        | 192.168.20.94
+        v
+    CT106 Nginx
+    192.168.20.94
+        |
+        +--> CT102 Jellyfin
+        |
+        +--> CT104 Beszel
+        |
+        +--> CT105 Uptime Kuma
+        |
+        +--> CT100 Pi-hole
+        |
+        +--> VM108 Pterodactyl Panel
 
-This is an example of split-horizon-style DNS behaviour: the internal DNS server provides private service addresses while the public Cloudflare zone does not publish the internal IP addresses.
-
----
-
-# NetBird Integration
-
-NetBird private remote access allows remote clients to reach the internal Nginx endpoints without exposing them publicly.
-
-The architecture is:
-
-```text
-Remote device
-      │
-      │ NetBird
-      ▼
-CT 101 NetBird
-      │
-      ▼
-192.168.20.99
-      │
-      ▼
-Nginx :443
-      │
-      ▼
-Internal service
-```
-
-This means a remote device can access the normal HTTPS service hostname while remaining within the private homelab access architecture.
-
-Nginx itself does not need to know whether the client is local or arriving through NetBird.
-
----
-
-# Configuration Validation
-
-Nginx configuration should always be tested before restarting the service.
-
-Use:
-
-```bash
-nginx -t
-```
-
-A successful result should indicate that the syntax is valid and the configuration test succeeded.
-
-Only after a successful test should Nginx be reloaded or restarted.
-
----
-
-# Reloading Nginx
-
-After changing an Nginx configuration:
-
-```bash
-systemctl reload nginx
-```
-
-A reload is generally preferable to a full restart because it allows existing connections to continue while the new configuration is loaded.
-
-For larger changes or when troubleshooting startup problems:
-
-```bash
-systemctl restart nginx
-```
-
-Check the resulting service state with:
-
-```bash
-systemctl status nginx
-```
-
----
-
-# Testing HTTPS
-
-The service can be tested from a client using:
-
-```bash
-curl -I https://jellyfin.robynshomelab.dev
-```
-
-The same approach can be used for:
-
-```bash
-curl -I https://status.robynshomelab.dev
-curl -I https://beszel.robynshomelab.dev
-curl -I https://pihole.robynshomelab.dev
-```
-
-This verifies that the HTTPS endpoint is reachable.
-
----
-
-# Testing the Backend Directly
-
-When troubleshooting a reverse proxy, it is useful to bypass Nginx and test the backend directly.
-
-For example, Jellyfin:
-
-```bash
-curl -I http://192.168.20.98:8096
-```
-
-Uptime Kuma:
-
-```bash
-curl -I http://192.168.20.95:3001
-```
-
-Beszel:
-
-```bash
-curl -I http://192.168.20.96:8090
-```
-
-Pi-hole:
-
-```bash
-curl -I http://192.168.20.99:8080
-```
-
-This helps identify whether a problem exists with:
-
-1. The backend application
-2. Network connectivity
-3. Nginx
-4. TLS
-5. DNS
-
----
-
-# Troubleshooting Method
-
-When an HTTPS service stops working, troubleshoot from the inside out.
-
-### 1. Check the backend
-
-```bash
-curl -I http://BACKEND_IP:PORT
-```
-
-If the backend does not respond, Nginx is not the immediate problem.
-
-### 2. Check Nginx configuration
-
-```bash
-nginx -t
-```
-
-### 3. Check Nginx service
-
-```bash
-systemctl status nginx
-```
-
-### 4. Check listening ports
-
-```bash
-ss -tulpn | grep -E ':80|:443'
-```
-
-### 5. Check DNS
-
-```bash
-dig jellyfin.robynshomelab.dev
-```
-
-### 6. Test HTTPS
-
-```bash
-curl -I https://jellyfin.robynshomelab.dev
-```
-
-This layered approach prevents changing multiple components at once and makes troubleshooting much easier.
-
----
-
-# Logs
-
-Nginx logs are stored under:
-
-```text
-/var/log/nginx/
-```
-
-The main files are:
-
-```text
-/var/log/nginx/access.log
-/var/log/nginx/error.log
-```
-
-The access log shows requests received by Nginx.
-
-The error log is particularly useful when troubleshooting:
-
-* Failed upstream connections
-* TLS problems
-* Configuration issues
-* Permission problems
-* Proxy failures
-
-Logs can be monitored with:
-
-```bash
-tail -f /var/log/nginx/error.log
-```
-
-and:
-
-```bash
-tail -f /var/log/nginx/access.log
-```
-
----
-
-# Security Considerations
-
-Nginx is currently an **internal reverse proxy**.
-
-The service hostnames resolve internally through Pi-hole and are not published with private IP addresses through Cloudflare.
-
-Nginx therefore provides HTTPS and hostname-based routing without requiring the services themselves to be publicly exposed.
-
-TLS private keys are stored under:
-
-```text
-/etc/letsencrypt/
-```
-
-and must never be committed to Git.
-
-The Nginx configuration can safely be versioned because it contains no private key material or API credentials.
-
----
-
-# Current Nginx Architecture
-
-The complete current arrangement is:
-
-```text
-                         Internal client
-                               │
-                               │ DNS
-                               ▼
-                         Pi-hole :53
-                               │
-                               │
-                    service → 192.168.20.99
-                               │
-                               ▼
-                         Nginx :443
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-              ▼                ▼                ▼
-          Jellyfin          Kuma             Beszel
-        192.168.20.98    192.168.20.95     192.168.20.96
-           :8096            :3001             :8090
-                              
-                         ┌─────────────┐
-                         │   Pi-hole   │
-                         │ 192.168.20.99
-                         │    :8080    │
-                         └─────────────┘
-```
-
-The important separation is:
-
-```text
-Pi-hole :53
-    ↓
-DNS
-
-Nginx :80/:443
-    ↓
-HTTPS / Reverse Proxy
-
-Pi-hole :8080
-    ↓
-Web interface
-
-Unbound :5335
-    ↓
-Recursive DNS
-```
-
----
-
-# Future Updates
-
-This document should be updated when:
-
-* A new reverse-proxied service is added
-* An existing backend address or port changes
-* TLS configuration changes
-* Additional security headers are introduced
-* Nginx is moved to another container
-* Public service exposure is introduced
-* Nginx is replaced with another reverse proxy
-* Authentication is added in front of services
-* Additional monitoring is added
-
+The reverse proxy provides a consistent HTTPS interface while keeping the underlying services on their private LAN addresses.

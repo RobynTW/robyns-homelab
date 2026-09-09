@@ -1,616 +1,330 @@
-# Cloudflare and DNS
+# Cloudflare
 
 ## Overview
 
-Cloudflare provides the public DNS infrastructure for the homelab domain:
+Cloudflare provides the homelab's authoritative public DNS, Dynamic DNS, and DNS-01 authentication for Let's Encrypt.
 
-```text
-robynshomelab.dev
-```
+Domain:
 
-The domain was purchased through Porkbun, while Cloudflare is used as the authoritative DNS provider.
+    robynshomelab.dev
 
-Cloudflare currently provides two main functions for the homelab:
+Registrar:
 
-* Authoritative public DNS
-* DNS-01 validation for Let's Encrypt TLS certificates
+    Porkbun
 
-Cloudflare is **not** currently being used as a reverse proxy for the homelab services.
+Cloudflare is authoritative for the domain.
 
----
+Cloudflare is **not** currently used as a traffic proxy for homelab services.
 
-## Domain
+The Cloudflare records are DNS-only.
 
-The homelab domain is:
+## Cloudflare Roles
 
-```text
-robynshomelab.dev
-```
+Cloudflare currently provides three main functions:
 
-The domain registrar is Porkbun.
+1. Authoritative public DNS.
+2. Dynamic DNS updates for the home WAN address.
+3. DNS-01 challenges for Let's Encrypt certificates.
 
-Cloudflare was configured as the authoritative DNS provider by changing the domain's nameservers at Porkbun to:
+Cloudflare does not currently provide:
 
-```text
-coby.ns.cloudflare.com
-jamie.ns.cloudflare.com
-```
-
-This means DNS queries for `robynshomelab.dev` are ultimately delegated to Cloudflare's nameservers.
-
-The registrar and DNS provider therefore have separate responsibilities:
-
-```text
-Porkbun
-  │
-  └── Domain registration
-
-Cloudflare
-  │
-  └── Authoritative DNS
-```
-
----
-
-## DNS Architecture
-
-The homelab uses different DNS paths depending on where the request originates.
-
-### Internal clients
-
-Internal clients use Pi-hole:
-
-```text
-Client
-   │
-   │ DNS :53
-   ▼
-Pi-hole
-192.168.20.99
-   │
-   ▼
-Unbound
-127.0.0.1:5335
-   │
-   ▼
-DNS hierarchy
-```
-
-Pi-hole provides the internal DNS records for homelab services.
-
-For example:
-
-```text
-jellyfin.robynshomelab.dev → 192.168.20.99
-status.robynshomelab.dev   → 192.168.20.99
-beszel.robynshomelab.dev   → 192.168.20.99
-pihole.robynshomelab.dev   → 192.168.20.99
-```
-
-These records exist inside Pi-hole and are **not published to Cloudflare's public DNS**.
-
----
+- Reverse proxying
+- Public traffic forwarding
+- Direct access to internal services
+- Public exposure of the Pterodactyl Panel
 
 ## Public DNS
 
-Cloudflare hosts the public DNS zone for:
+The current public DNS records include:
 
-```text
-robynshomelab.dev
-```
+| Hostname | Target | Type | Proxy |
+|---|---|---|---|
+| `home.robynshomelab.dev` | Home WAN IP | A | DNS-only |
+| `panel.robynshomelab.dev` | Home WAN IP | A | DNS-only |
 
-Only records that are intentionally public should be placed in this zone.
+The actual WAN IP is managed dynamically.
 
-The homelab does **not** publish private RFC1918 addresses such as:
+The `home` record is updated by ddclient on CT100.
 
-```text
-192.168.20.x
-```
+The `panel` record is intentionally retained even though the Panel is not publicly reachable.
 
-to public DNS.
+## Why the Panel Uses the WAN IP Publicly
 
-This prevents external users from learning or attempting to access internal addresses that are not publicly routable.
+The public Cloudflare record for:
 
----
+    panel.robynshomelab.dev
 
-## Internal and Public DNS Separation
+points to the home WAN IP.
 
-The same hostname can therefore have different behaviour depending on where the DNS request originates.
+This does **not** mean the Pterodactyl Panel is publicly accessible.
 
-For example:
+There is currently no router port forwarding configured to expose the Panel.
 
-```text
-Internal client
-     │
-     ▼
-Pi-hole
-     │
-     └── jellyfin.robynshomelab.dev
-                 ↓
-          192.168.20.99
+For internal clients, Pi-hole overrides the public DNS result:
 
+    panel.robynshomelab.dev
+            |
+            v
+    192.168.20.94
 
-Public DNS query
-     │
-     ▼
-Cloudflare
-     │
-     └── No public Jellyfin record
-```
+This is split DNS.
 
-This is intentional.
+The public Cloudflare record exists primarily so that the hostname has a valid public DNS identity and can be used for ACME DNS-01 certificate issuance.
 
-The internal service names are primarily used for convenient HTTPS access inside the homelab.
+## Split DNS
 
----
+Internal DNS is handled by Pi-hole on CT100.
 
-# Cloudflare DDNS
+Pi-hole:
 
-Cloudflare also hosts the public DNS record used for dynamic DNS.
+    192.168.20.99
 
-The record is:
+Internal service names resolve to the Nginx reverse proxy on CT106:
 
-```text
-home.robynshomelab.dev
-```
+    192.168.20.94
 
-It is an IPv4 `A` record.
+Current internal records include:
 
-Its purpose is to provide a stable hostname for the home's changing public IPv4 address.
+    jellyfin.robynshomelab.dev -> 192.168.20.94
+    status.robynshomelab.dev  -> 192.168.20.94
+    beszel.robynshomelab.dev  -> 192.168.20.94
+    pihole.robynshomelab.dev  -> 192.168.20.94
+    panel.robynshomelab.dev   -> 192.168.20.94
 
-The architecture is:
+The DNS flow for an internal client is therefore:
 
-```text
-Home Internet
-     │
-     ▼
-Public IPv4
-     │
-     ▼
-Cloudflare DNS
-     │
-     └── home.robynshomelab.dev
-```
-
-The record is configured as:
-
-```text
-Type: A
-Name: home
-Proxy: DNS only
-TTL: Auto
-```
-
----
-
-## Why the DDNS Record Is DNS Only
-
-The `home` record is intentionally **not proxied** through Cloudflare.
-
-It uses Cloudflare's DNS service only:
-
-```text
-DNS only
-```
-
-rather than:
-
-```text
-Proxied
-```
-
-This is important because the hostname is intended to represent the home's public IP for future services that may not use HTTP/HTTPS.
-
-Cloudflare's normal orange-cloud proxy is designed primarily for supported web traffic.
-
-For future game servers and other arbitrary network services, the DNS-only record is therefore the appropriate configuration.
-
----
-
-## DDNS Client
-
-DDNS is handled by `ddclient` inside CT 100.
-
-```text
-CT 100
-pihole-nginx
-192.168.20.99
-```
-
-The decision to run DDNS here avoids creating another container solely for a small background service.
-
-CT 100 is already intended to be an always-running infrastructure container and already has the required Cloudflare tooling.
-
-The architecture is:
-
-```text
-CT 100
- │
- ├── Pi-hole
- ├── Unbound
- ├── Nginx
- └── ddclient
-        │
-        ▼
-    Cloudflare
-```
-
----
-
-## DDNS Update Process
-
-`ddclient` periodically determines the home's public IPv4 address and updates the Cloudflare `home` record when necessary.
-
-The current configuration checks every five minutes.
-
-The relevant setting is:
-
-```text
-daemon_interval="5m"
-```
-
-The DDNS service is enabled at boot.
-
-The configuration is stored in:
-
-```text
-/etc/ddclient.conf
-```
-
-The file contains the Cloudflare API credential and must remain protected.
-
-Its permissions are:
-
-```text
--rw------- 1 root root
-```
-
-The credential must **never** be committed to Git.
-
----
-
-## Cloudflare API Token
-
-A dedicated Cloudflare API token was created specifically for DDNS.
-
-The token is restricted to:
-
-```text
-Zone → DNS → Edit
-```
-
-and is limited to the:
-
-```text
-robynshomelab.dev
-```
-
-zone.
-
-The token is separate from the Cloudflare API token used for Let's Encrypt DNS-01 validation.
-
-This separation follows the principle of least privilege:
-
-```text
-DDNS token
-    ↓
-DNS editing only
-    ↓
-robynshomelab.dev
-
-
-ACME token
-    ↓
-DNS editing for certificate validation
-    ↓
-robynshomelab.dev
-```
-
-The actual token value is intentionally **not documented in Git**.
-
----
-
-## DDNS Testing
-
-The current public IPv4 address can be checked with:
-
-```bash
-curl -4 https://icanhazip.com
-```
-
-The Cloudflare DNS record can then be checked with:
-
-```bash
-dig +short home.robynshomelab.dev
-```
-
-The two addresses should match.
-
-A successful manual `ddclient` test was performed with:
-
-```bash
-ddclient -daemon=0 -verbose
-```
-
-The update completed successfully.
-
----
-
-# Let's Encrypt DNS-01
-
-Cloudflare is also used for automated Let's Encrypt certificate validation.
-
-The ACME validation method is:
-
-```text
-DNS-01
-```
-
-This allows Let's Encrypt to verify control of the domain by checking a temporary DNS TXT record.
-
-The process is approximately:
-
-```text
-Certbot
-   │
-   ▼
-Cloudflare API
-   │
-   ▼
-_acme-challenge.robynshomelab.dev
-   │
-   ▼
-Let's Encrypt
-   │
-   ▼
-Certificate issued
-```
-
-This is particularly useful for the homelab because the internal services do not need to be publicly accessible for certificate validation.
-
----
-
-## ACME API Token
-
-A separate Cloudflare API token is used for certificate issuance.
-
-It is stored only on CT 100:
-
-```text
-/root/.secrets/certbot/cloudflare.ini
-```
-
-The file contains the Cloudflare API token required by the Certbot Cloudflare DNS plugin.
-
-The file is:
-
-* Root owned
-* Restricted to mode `600`
-* Excluded from Git
-
-The credential must never be copied into the homelab repository.
-
----
-
-## TLS Certificates
-
-The following certificates have been issued:
-
-```text
-jellyfin.robynshomelab.dev
-status.robynshomelab.dev
-beszel.robynshomelab.dev
-pihole.robynshomelab.dev
-```
-
-They are used by Nginx to provide HTTPS access to the corresponding internal services.
-
-The current certificate architecture is:
-
-```text
-Client
-  │
-  │ HTTPS
-  ▼
-Nginx :443
-  │
-  ├── jellyfin.robynshomelab.dev → Jellyfin
-  ├── status.robynshomelab.dev   → Uptime Kuma
-  ├── beszel.robynshomelab.dev   → Beszel
-  └── pihole.robynshomelab.dev   → Pi-hole
-```
-
----
-
-## Why DNS-01 Was Chosen
-
-DNS-01 validation has several advantages for this homelab.
-
-Most importantly, the services do not need to be exposed publicly to obtain valid certificates.
-
-The validation occurs through Cloudflare DNS instead:
-
-```text
-Let's Encrypt
-      │
-      ▼
-Cloudflare DNS
-      │
-      ▼
-TXT challenge
-      │
-      ▼
-Domain ownership verified
-```
-
-This fits the homelab's security model because Nginx can remain reachable only from the intended network paths.
-
----
-
-## Certificate Renewal
-
-Let's Encrypt certificates have a limited validity period and must be renewed periodically.
-
-Certbot's systemd timers handle renewal automatically.
-
-The renewal process can be checked with:
-
-```bash
-systemctl list-timers | grep certbot
-```
-
-A dry-run renewal test can be performed with:
-
-```bash
-certbot renew --dry-run
-```
-
-The dry run should be used before making significant changes to the Cloudflare or Certbot configuration.
-
----
-
-# Cloudflare and Reverse Proxy
-
-Cloudflare is **not currently sitting in front of Nginx**.
-
-The current HTTPS architecture is:
-
-```text
-Client
-   │
-   ▼
-Pi-hole
-   │
-   ▼
-192.168.20.99
-   │
-   ▼
-Nginx :443
-   │
-   ├── Jellyfin
-   ├── Uptime Kuma
-   ├── Beszel
-   └── Pi-hole
-```
-
-Cloudflare's role is currently limited to:
-
-* Authoritative public DNS
-* DDNS
-* ACME DNS-01 validation
-
-Nginx handles the actual HTTPS reverse proxying.
-
----
-
-# Security Considerations
-
-### Never publish private addresses
-
-Addresses such as:
-
-```text
-192.168.20.95
-192.168.20.96
-192.168.20.97
-192.168.20.98
-192.168.20.99
-192.168.20.100
-```
-
-are internal network addresses.
-
-They should not be placed in the public Cloudflare DNS zone.
-
----
-
-### Protect API tokens
-
-Cloudflare API tokens provide access to DNS resources and must be treated as secrets.
-
-They should:
-
-* Never be committed to Git
-* Never be pasted into public documentation
-* Have the minimum permissions required
-* Be stored in root-readable configuration files
-* Be separated by function where practical
-
----
-
-### Do not use the global Cloudflare API key
-
-The homelab uses scoped API tokens rather than Cloudflare's global API key.
-
-This limits the impact if a credential is accidentally compromised.
-
----
-
-# Current Cloudflare Architecture
-
-The current design can be summarised as:
-
-```text
-                     Internet
-                        │
-                        ▼
-                 Cloudflare DNS
-                        │
-             ┌──────────┴──────────┐
-             │                     │
-      home.robynshomelab.dev   ACME DNS-01
-             │                     │
-             ▼                     ▼
-        Home public IP        Let's Encrypt
-                                  │
-                                  ▼
-                              Certificates
-
-
-Internal network
-       │
-       ▼
+    Client
+      |
+      v
     Pi-hole
-       │
-       ├── Internal DNS records
-       │
-       ▼
-    Unbound
-       │
-       ▼
- DNS hierarchy
-```
+    192.168.20.99
+      |
+      | local DNS override
+      v
+    192.168.20.94
+      |
+      v
+    Nginx
 
-Cloudflare therefore provides the public DNS control plane, while Pi-hole and Unbound provide the actual internal DNS infrastructure.
+The external DNS flow is different:
 
----
+    External DNS client
+      |
+      v
+    Cloudflare
+      |
+      v
+    Home WAN IP
 
-# Key Commands
+Because there is no appropriate router port forwarding, external clients cannot reach the internal services through these records.
 
-| Command                                     | Purpose                                   |
-| ------------------------------------------- | ----------------------------------------- |
-| `dig +short home.robynshomelab.dev`         | Check the public DDNS record              |
-| `curl -4 https://icanhazip.com`             | Determine the current public IPv4 address |
-| `ddclient -daemon=0 -verbose`               | Run a manual DDNS update/test             |
-| `systemctl status ddclient`                 | Check the DDNS service                    |
-| `systemctl is-enabled ddclient`             | Check whether DDNS starts at boot         |
-| `systemctl list-timers \| grep certbot`     | Check Certbot renewal timers              |
-| `certbot renew --dry-run`                   | Test certificate renewal                  |
-| `dig TXT _acme-challenge.robynshomelab.dev` | Inspect an ACME DNS challenge             |
+## Dynamic DNS
 
----
+CT100 runs ddclient.
 
-# Future Updates
+ddclient updates:
 
-This document should be updated when:
+    home.robynshomelab.dev
 
-* Cloudflare DNS records change
-* Additional public DNS records are created
-* DDNS configuration changes
-* Cloudflare API token permissions change
-* Additional certificates are issued
-* Certificate renewal architecture changes
-* Cloudflare proxying is introduced
-* Public services are exposed
-* The domain registrar changes
-* DNS architecture changes
+with the current home WAN IP.
+
+The DDNS service checks for changes periodically.
+
+The current configured check interval is approximately:
+
+    5 minutes
+
+The Cloudflare credential used for DDNS is a dedicated API token.
+
+The token is stored locally on CT100.
+
+Credentials are never stored in the GitHub repository.
+
+Further DDNS details are documented in:
+
+    14-ddns.md
+
+## Let's Encrypt DNS-01
+
+Let's Encrypt certificates are managed by Certbot on CT106.
+
+Cloudflare DNS is used for DNS-01 validation.
+
+The flow is:
+
+    CT106 Certbot
+        |
+        | Cloudflare API
+        v
+    Cloudflare DNS
+        |
+        | TXT challenge
+        v
+    Let's Encrypt
+        |
+        v
+    Certificate
+
+The ACME credential is separate from the DDNS credential.
+
+This separation limits the permissions of each API credential.
+
+The ACME credential is stored locally on CT106 at:
+
+    /root/.secrets/certbot/cloudflare.ini
+
+The file is root-owned and restricted to mode `600`.
+
+The actual token is intentionally not documented.
+
+## Current Certificates
+
+Certbot on CT106 currently manages certificates for:
+
+    jellyfin.robynshomelab.dev
+    status.robynshomelab.dev
+    beszel.robynshomelab.dev
+    pihole.robynshomelab.dev
+
+The Pterodactyl Panel certificate will use:
+
+    panel.robynshomelab.dev
+
+The Panel certificate is part of the current HTTPS deployment work.
+
+## Cloudflare Proxy Status
+
+Cloudflare proxying is deliberately disabled for the homelab records.
+
+The records are:
+
+    DNS-only
+
+This means Cloudflare provides DNS resolution but does not sit in the HTTP/HTTPS traffic path.
+
+The current traffic architecture is therefore:
+
+    Client
+      |
+      v
+    Cloudflare DNS
+      |
+      v
+    Home WAN IP
+      |
+      v
+    Router
+      |
+      v
+    Internal service
+
+For internal clients using split DNS, Cloudflare is bypassed for the DNS lookup:
+
+    Client
+      |
+      v
+    Pi-hole
+      |
+      v
+    CT106 Nginx
+
+## Security
+
+Cloudflare API credentials must never be committed to GitHub.
+
+Do not document:
+
+- API tokens
+- API keys
+- Account credentials
+- Private keys
+- Certbot credentials
+
+Only document:
+
+- Credential purpose
+- Credential location
+- Required permissions
+- Which service uses the credential
+
+The DDNS and ACME credentials should remain separate.
+
+## Verification
+
+### Check public DNS
+
+From a system using an external resolver:
+
+    dig home.robynshomelab.dev
+
+    dig panel.robynshomelab.dev
+
+The public result should correspond to the current Cloudflare record.
+
+### Check internal DNS
+
+From the LAN:
+
+    dig @192.168.20.99 panel.robynshomelab.dev
+
+Expected result:
+
+    192.168.20.94
+
+Likewise:
+
+    dig @192.168.20.99 jellyfin.robynshomelab.dev
+
+Expected result:
+
+    192.168.20.94
+
+### Check DDNS
+
+On CT100:
+
+    systemctl status ddclient
+
+The Cloudflare `home` record should correspond to the current WAN address.
+
+### Check Certbot
+
+On CT106:
+
+    systemctl status certbot.timer
+
+A dry-run can be performed when testing renewal configuration.
+
+## Architecture Summary
+
+The current Cloudflare and DNS architecture is:
+
+    Internet
+       |
+       v
+    Cloudflare
+       |
+       +--> Public DNS
+       |
+       +--> DNS-01
+       |
+       +--> DDNS record updates
+       
+    Internal Client
+       |
+       v
+    Pi-hole
+    192.168.20.99
+       |
+       +--> Split DNS
+       |      |
+       |      v
+       |   CT106 Nginx
+       |   192.168.20.94
+       |
+       +--> Unbound
+              |
+              v
+          Recursive DNS
+
+Cloudflare provides the public DNS control plane, while Pi-hole provides internal split DNS and DNS filtering.

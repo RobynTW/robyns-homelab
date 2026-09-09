@@ -1,483 +1,369 @@
-# Proxmox VE
+# Proxmox
 
 ## Overview
 
-Proxmox VE is the virtualisation platform used as the foundation of the homelab.
+The homelab runs Proxmox VE across two physical Dell systems.
 
-The homelab currently consists of two physical Proxmox hosts:
+Both systems are members of the same Proxmox cluster:
 
-* Dell OptiPlex 3060 — `pve-1`
-* Dell OptiPlex 9020 SFF — `pve-2`
+    Cluster: homelab
 
-The two hosts are members of the `homelab` Proxmox cluster.
+The cluster contains:
 
-High-level architecture:
+- `pve-1`
+- `pve-2`
 
-```text
-                    homelab Proxmox cluster
-                           │
-              ┌────────────┴────────────┐
-              │                         │
-              ▼                         ▼
-        Dell OptiPlex 3060       Dell OptiPlex 9020
-             pve-1                    pve-2
-       192.168.20.100            192.168.20.101
-              │                         │
-       Infrastructure              Pterodactyl
-       Media services                VM 108
-       Monitoring
-```
+High availability is deliberately disabled.
 
-The cluster is used primarily for centralised Proxmox management. High availability is intentionally not enabled.
+The cluster currently requires both nodes for quorum.
 
----
+## Proxmox Hosts
 
-## Proxmox Cluster
+| Node | Hardware | IP | Role |
+|---|---|---|---|
+| `pve-1` | Dell OptiPlex 3060 | `192.168.20.100` | Core infrastructure |
+| `pve-2` | Dell OptiPlex 9020 SFF | `192.168.20.101` | Pterodactyl / storage |
 
-### Cluster Name
+Both hosts use the following local hostname configuration:
 
-```text
-Cluster: homelab
-Nodes:   pve-1
-         pve-2
-```
+    192.168.20.100 pve-1.home pve-1
+    192.168.20.101 pve-2.home pve-2
 
-The cluster currently contains two nodes.
+## Cluster
 
-Both nodes use the local homelab network:
+Cluster name:
 
-```text
-192.168.20.0/24
-```
+    homelab
 
-The cluster currently operates with quorum requiring both nodes.
+The cluster currently consists of two nodes.
 
-HA is deliberately disabled. The cluster is therefore used for management and resource organisation rather than automatic service failover.
+| Node | Status |
+|---|---|
+| `pve-1` | Online |
+| `pve-2` | Online |
 
-### Hostnames
+HA is not enabled.
 
-The two Proxmox nodes are configured with the following hostnames:
+This is intentional because the current hardware and service design does not require automatic VM failover.
 
-```text
-192.168.20.100 pve-1.home pve-1
-192.168.20.101 pve-2.home pve-2
-```
+Because this is a two-node cluster, quorum currently requires both nodes to be available.
 
-The corresponding host entries are present on both Proxmox systems.
-
----
-
-# Proxmox Host — pve-1
-
-## Hardware
-
-```text
-Model: Dell OptiPlex 3060
-Hostname: pve-1
-IP:       192.168.20.100
-```
-
-pve-1 is the primary infrastructure and compute host.
-
-Its responsibilities include:
-
-* Network infrastructure
-* DNS
-* HTTPS reverse proxy
-* Remote access
-* Media services
-* Monitoring
-* Homarr (planned)
-
-pve-1 also contains the homelab's existing Nginx reverse-proxy infrastructure.
-
-## Existing LXC Services
-
-| VMID | Hostname       | Purpose                              | IP              |
-| ---: | -------------- | ------------------------------------ | --------------- |
-|  100 | `pihole-nginx` | Pi-hole, Unbound, Nginx and DDNS     | `192.168.20.99` |
-|  101 | `netbird`      | Private remote access / routing peer | `192.168.20.97` |
-|  102 | `jellyfin`     | Media server                         | `192.168.20.98` |
-|  104 | `beszel`       | System monitoring                    | `192.168.20.96` |
-|  105 | `uptime-kuma`  | Service monitoring                   | `192.168.20.95` |
-
-VMID 103 remains unused.
-
-VMID 107 is reserved for the planned Homarr deployment.
-
----
-
-# Proxmox Host — pve-2
-
-## Hardware
-
-```text
-Model: Dell OptiPlex 9020 SFF
-Hostname: pve-2
-IP:       192.168.20.101
-```
-
-Hardware:
-
-```text
-CPU: Intel Core i7-4770
-Cores: 4 physical / 8 logical
-RAM: 16 GB
-System SSD: Samsung MZ7PC128HA
-SSD capacity: approximately 119 GB
-```
-
-The 9020 was introduced as the second physical Proxmox host for the homelab.
-
-Its primary workload is the Pterodactyl game-server environment.
-
-A separate 4 TB WD Blue `WD40EZRZ` HDD is intended to provide bulk storage/NAS functionality. The drive has not yet been installed.
-
-The planned NAS architecture is a simple filesystem/NFS-based share rather than TrueNAS or OpenMediaVault.
-
----
-
-## pve-2 Proxmox Storage
-
-Current local storage:
-
-```text
-local
-├── Type: directory
-├── Capacity: approximately 40.5 GB
-└── Available: approximately 33.9 GB
-
-local-lvm
-├── Type: LVM-thin
-├── Capacity: approximately 56.5 GB available
-└── Used: 0 GB at initial deployment
-```
-
-The Proxmox installation resides on the 128 GB-class SSD.
-
-The future 4 TB HDD is intended for bulk file storage and NFS exports rather than Pterodactyl application storage.
-
----
-
-# Network Configuration
-
-Both Proxmox nodes are connected to the existing homelab LAN:
-
-```text
-192.168.20.0/24
-```
-
-The current network is still based around the existing ISP router.
-
-A managed network switch is planned for a future infrastructure upgrade.
-
-The current model is:
-
-```text
-ISP Router
-     │
-     ├── pve-1
-     │    └── 192.168.20.100
-     │
-     └── pve-2
-          └── 192.168.20.101
-```
-
-Both Proxmox systems use `vmbr0` for their virtualised network connectivity.
-
----
-
-# Proxmox Cluster Integration
-
-The Dell OptiPlex 9020 was installed with Proxmox VE and subsequently integrated into the existing `homelab` cluster.
-
-The resulting cluster is:
-
-```text
-homelab
-│
-├── pve-1
-│   └── 192.168.20.100
-│
-└── pve-2
-    └── 192.168.20.101
-```
-
-The cluster does not currently use HA.
-
-This means that the cluster provides centralised management but does not automatically migrate or restart workloads if a physical host fails.
-
----
-
-# Virtual Machines
-
-Proxmox uses KVM/QEMU for full virtual machines.
-
-## VM 108 — Pterodactyl
-
-VMID:
-
-```text
-108
-```
-
-Host:
-
-```text
-pve-2
-```
+## pve-1
 
 Hostname:
 
-```text
-pterodactyl
-```
+    pve-1
 
 IP:
 
-```text
-192.168.20.111
-```
+    192.168.20.100
 
-Purpose:
+Hardware:
 
-```text
-Pterodactyl game-server management
-```
+    Dell OptiPlex 3060
+
+Current workloads:
+
+| ID | Type | Hostname | IP | Service |
+|---|---|---|---|---|
+| CT100 | LXC | `pihole` | `192.168.20.99` | Pi-hole / Unbound / DDNS |
+| CT101 | LXC | `netbird` | `192.168.20.97` | NetBird routing peer |
+| CT102 | LXC | `jellyfin` | `192.168.20.98` | Jellyfin |
+| CT104 | LXC | `beszel` | `192.168.20.96` | Beszel |
+| CT105 | LXC | `uptime-kuma` | `192.168.20.95` | Uptime Kuma |
+| CT106 | LXC | `nginx` | `192.168.20.94` | Nginx / Certbot |
+
+Reserved VMIDs:
+
+- VM103 — future media stack
+- VM107 — future Homarr
+
+## pve-2
+
+Hostname:
+
+    pve-2
+
+IP:
+
+    192.168.20.101
+
+Hardware:
+
+    Dell OptiPlex 9020 SFF
+    Intel Core i7-4770
+    4 physical cores
+    8 logical threads
+    16 GB RAM
+
+Proxmox VE:
+
+    9.2.2
+
+Kernel:
+
+    7.0.2-6-pve
+
+Current workload:
+
+| ID | Type | Hostname | IP | Service |
+|---|---|---|---|---|
+| VM108 | VM | `pterodactyl` | `192.168.20.111` | Pterodactyl Panel |
+
+## VM108 — Pterodactyl
+
+VMID:
+
+    108
+
+Hostname:
+
+    pterodactyl
+
+Host:
+
+    pve-2
+
+IP:
+
+    192.168.20.111
+
+Operating system:
+
+    Debian 13 Trixie
+
+Kernel:
+
+    6.12.107+deb13-amd64
+
+Virtualisation:
+
+    KVM
+
+### VM Resources
+
+    vCPU: 6
+    Sockets: 1
+    Cores: 6
+    CPU type: host
+    RAM: 12 GB
+    Disk: 40 GB
+    Storage: local-lvm
 
 ### VM Configuration
 
-```text
-Operating system: Debian 13 (Trixie)
-Firmware: OVMF / UEFI
-Machine: Q35
-CPU: 6 vCPU
-CPU type: host
-Sockets: 1
-Cores: 6
-RAM: 12 GB
-Disk: 40 GB
-Storage: local-lvm
-Network: VirtIO
-Bridge: vmbr0
-SCSI controller: VirtIO SCSI single
-QEMU Guest Agent: enabled
-NUMA: disabled
-Memory ballooning: disabled
-Nested virtualisation: disabled
-```
+- Q35 machine type
+- OVMF / UEFI
+- VirtIO network adapter
+- VirtIO SCSI single
+- QEMU Guest Agent enabled
+- NUMA disabled
+- Memory ballooning disabled
+- Nested virtualisation disabled
+- Proxmox VM firewall currently disabled
+- Disk cache: none
+- Discard enabled
+- IO thread enabled
+- SSD emulation enabled
+- Backup enabled
 
-Disk configuration:
+The VM is headless and administered through SSH.
 
-```text
-Bus: SCSI
-Storage: local-lvm
-Capacity: 40 GB
-Cache: none
-Discard: enabled
-IO thread: enabled
-SSD emulation: enabled
-Backup: enabled
-```
+SSH access:
 
-The VM is intentionally headless.
+    ssh robyn@192.168.20.111
 
-Debian was installed without a desktop environment. SSH server and standard system utilities were installed.
+## VM108 Software
 
----
+The Pterodactyl VM currently contains the software required for the Panel.
 
-# VM 108 Networking
+Installed components include:
 
-The Pterodactyl VM currently uses:
+- Docker Engine Community
+- containerd
+- runc
+- PHP 8.3
+- PHP-FPM
+- MariaDB 11.8
+- Redis
+- Composer
+- Nginx
+- Git
+- Curl
+- CA certificates
+- Required PHP extensions and supporting packages
 
-```text
-Interface: ens18
-IPv4:      192.168.20.111/24
-```
+PHP packages were installed using the Sury repository.
 
-SSH access is available using:
+## Pterodactyl Panel
 
-```bash
-ssh robyn@192.168.20.111
-```
+The Panel is installed under:
 
-The VM's hostname is:
+    /var/www/pterodactyl
 
-```text
-pterodactyl
-```
+The Laravel application is configured for production.
 
-The VM currently receives its LAN address through DHCP. A permanent DHCP reservation/static addressing arrangement can be implemented later.
+Current application configuration includes:
 
----
+    APP_ENV=production
+    APP_DEBUG=false
+    APP_TIMEZONE=Australia/Melbourne
+    APP_URL=https://panel.robynshomelab.dev
 
-# VM 108 Base Configuration
+The Panel database is hosted locally on VM108 using MariaDB.
 
-The Debian installation was verified as:
+Redis is used for the Laravel queue.
 
-```text
-Debian GNU/Linux 13 (Trixie)
-Kernel: 6.12.107+deb13-amd64
-Virtualisation: KVM
-```
+The Panel database migrations and seed operations have been completed.
 
-The initial user account is:
+An administrative account has been created.
 
-```text
-robyn
-```
+Credentials are intentionally not documented in this repository.
 
-`sudo` was installed and the user was added to the sudo group.
+## Pterodactyl Network Architecture
 
-The VM is administered primarily through SSH.
+The Panel is accessed through CT106 rather than being directly exposed.
 
----
-
-# Future Storage Architecture
-
-The Dell OptiPlex 9020 is intended to provide both compute and bulk storage.
-
-The intended architecture is:
-
-```text
-Dell OptiPlex 9020
-│
-├── Proxmox
-│
-├── 4 TB HDD
-│   └── NFS / file share
-│
-└── VM 108
-    └── Pterodactyl
-```
-
-The 4 TB HDD is intended to be a simple network file share.
-
-It is not intended to host the Pterodactyl VM itself.
-
-The Pterodactyl VM currently uses the 9020's system SSD.
-
----
-
-# Proxmox Management Commands
-
-Useful commands include:
-
-```bash
-pvecm status
-```
-
-Check cluster status.
-
-```bash
-pvecm nodes
-```
-
-List cluster nodes.
-
-```bash
-qm list
-```
-
-List virtual machines.
-
-```bash
-qm status 108
-```
-
-Check VM 108 status.
-
-```bash
-qm config 108
-```
-
-Display VM 108 configuration.
-
-```bash
-qm start 108
-```
-
-Start VM 108.
-
-```bash
-qm stop 108
-```
-
-Stop VM 108.
-
-```bash
-ip addr
-```
-
-Inspect network interfaces.
-
-```bash
-ip route
-```
-
-Inspect routing.
-
-```bash
-ss -tulpn
-```
-
-Inspect listening services.
-
----
-
-# Current Proxmox Status
-
-```text
-pve-1:
-    Operational
-    192.168.20.100
-
-pve-2:
-    Operational
-    192.168.20.101
-
-Cluster:
-    homelab
-    Operational
-    2 nodes
-    HA disabled
-
-Pterodactyl VM:
-    VMID 108
-    Operational
+    Client
+      |
+      | HTTPS
+      v
+    CT106 Nginx
+    192.168.20.94
+      |
+      | HTTP
+      v
+    VM108
     192.168.20.111
+      |
+      v
+    Pterodactyl Panel
 
-4 TB HDD:
-    Not yet installed
-    Planned for NFS/file sharing
-```
+CT106 currently handles the external-facing HTTPS/TLS layer.
 
----
+The Panel itself communicates with the local VM Nginx over HTTP.
 
-# Documentation Philosophy
+## Storage
 
-When infrastructure changes, this document should be updated to reflect the actual deployed state.
+The current Proxmox installation uses local storage on each host.
 
-Document:
+VM108's virtual disk is stored on:
 
-* VMID
-* Hostname
-* IP address
-* Physical host
-* Purpose
-* CPU/RAM allocation
-* Storage
-* Network configuration
-* Important services
-* Cluster membership
-* Important troubleshooting commands
+    local-lvm
 
-Do not commit:
+The VM's 40 GB virtual disk is intended for the operating system and Pterodactyl application components.
 
-* Passwords
-* Private keys
-* API tokens
-* Database credentials
-* Other secrets
+Bulk storage is planned separately on `pve-2`.
 
-The documentation should distinguish between **deployed**, **in progress**, and **planned** infrastructure rather than presenting planned architecture as operational.
+A WD Blue 4 TB (`WD40EZRZ`) HDD is intended to be installed directly into `pve-2`.
+
+The planned storage architecture is:
+
+    pve-2
+      |
+      +--> SSD
+      |     |
+      |     +--> Proxmox
+      |     +--> VM108
+      |
+      +--> 4 TB HDD
+            |
+            +--> Host filesystem
+            +--> NFS/fileshare
+            +--> Future media storage
+
+The 4 TB HDD is not intended to replace the Proxmox VM storage.
+
+## Proxmox Networking
+
+The Proxmox hosts currently operate on:
+
+    192.168.20.0/24
+
+Default gateway:
+
+    192.168.20.1
+
+The current network is flat.
+
+Both Proxmox hosts connect directly to the existing network infrastructure.
+
+A managed switch, VLANs, and improved firewall/routing are planned for future network upgrades.
+
+## Backups
+
+Proxmox VM backup configuration is enabled for VM108.
+
+A broader backup strategy for application data, databases, configuration, and future game-server data still needs to be developed.
+
+The future backup design should account for:
+
+- Proxmox VM configuration
+- Pterodactyl Panel data
+- MariaDB
+- Redis configuration
+- Wings configuration
+- Game-server data
+- Nginx configuration
+- DNS configuration
+- Critical service configuration
+
+## Future Pterodactyl Components
+
+The following components are not yet deployed:
+
+- Pterodactyl Wings
+- Pterodactyl node registration
+- Game-server allocations
+- Game servers
+- NetBird peer on VM108
+- Game-server networking
+- Pterodactyl-specific monitoring
+
+The intended future architecture is:
+
+    VM108
+      |
+      +--> Pterodactyl Panel
+      |
+      +--> Wings
+            |
+            +--> Docker
+                  |
+                  +--> Game Server
+                  +--> Game Server
+                  +--> Game Server
+
+VM108 will eventually run its own NetBird peer.
+
+This will allow game-server networking to be handled independently from the existing CT101 routing peer.
+
+## VMID Allocation
+
+Current and reserved VMIDs:
+
+| VMID | Status | Purpose |
+|---|---|---|
+| CT100 | Deployed | Pi-hole / Unbound / DDNS |
+| CT101 | Deployed | NetBird |
+| CT102 | Deployed | Jellyfin |
+| VM103 | Reserved | Media stack |
+| CT104 | Deployed | Beszel |
+| CT105 | Deployed | Uptime Kuma |
+| CT106 | Deployed | Nginx / Certbot |
+| VM107 | Reserved | Homarr |
+| VM108 | Deployed | Pterodactyl |
+
+## Proxmox Design Principles
+
+The current Proxmox architecture prioritises:
+
+1. Simple service separation.
+2. Reuse of existing hardware.
+3. Low overhead for infrastructure services.
+4. Dedicated VM isolation for Pterodactyl.
+5. Separate bulk storage from VM storage.
+6. Incremental expansion.
+7. Avoiding unnecessary HA complexity.
+
+The Proxmox configuration should be updated whenever nodes, guests, storage, or cluster architecture changes.

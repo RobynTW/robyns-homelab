@@ -2,279 +2,174 @@
 
 ## Overview
 
-This document records the physical hardware used by the homelab, its current roles, and planned hardware additions.
+The homelab currently consists of two physical Dell OptiPlex systems running Proxmox VE as members of the same cluster.
 
-The homelab currently consists primarily of a Dell OptiPlex 3060 running Proxmox. A Dell OptiPlex 9020 SFF is planned as the dedicated storage/NAS and Pterodactyl host.
+The systems have different roles:
 
-The hardware is intentionally divided by role so that services can be isolated and the infrastructure can be expanded over time.
+- `pve-1` provides the primary core-infrastructure host.
+- `pve-2` provides additional compute capacity and will provide bulk HDD storage.
 
----
+Neither system is intended to be a traditional dedicated NAS. Storage will be provided directly from `pve-2` using a host filesystem and NFS.
 
-## Current Hardware
+## Physical Hosts
 
-### Dell OptiPlex 3060
+| Host | Model | Role | IP |
+|---|---|---|---|
+| `pve-1` | Dell OptiPlex 3060 | Proxmox / core services | `192.168.20.100` |
+| `pve-2` | Dell OptiPlex 9020 SFF | Proxmox / Pterodactyl / storage | `192.168.20.101` |
 
-| Component       | Specification                       |
-| --------------- | ----------------------------------- |
-| Model           | Dell OptiPlex 3060                  |
-| Role            | Proxmox host                        |
-| IP address      | `192.168.20.100`                    |
-| Hostname        | `pve-1`                             |
-| Virtualisation  | Proxmox VE                          |
-| Primary purpose | Homelab services and infrastructure |
+Both hosts are members of the `homelab` Proxmox cluster.
 
-The 3060 currently hosts the main infrastructure containers:
+## pve-1
 
-* CT 100 — Pi-hole, Nginx, Unbound and ddclient
-* CT 101 — NetBird
-* CT 102 — Jellyfin
-* CT 104 — Beszel
-* CT 105 — Uptime Kuma
+### System
 
-The 3060 is currently connected directly to the ISP router. A network switch is planned for a future expansion.
+- Model: Dell OptiPlex 3060
+- Hostname: `pve-1`
+- IP address: `192.168.20.100`
+- Hypervisor: Proxmox VE
 
-### Current Container Allocation
+`pve-1` currently hosts the majority of the core infrastructure containers.
 
-| VMID | Hostname       | Role                            | IP address      |
-| ---: | -------------- | ------------------------------- | --------------- |
-|  100 | `pihole-nginx` | Pi-hole, Unbound, Nginx, DDNS   | `192.168.20.99` |
-|  101 | `netbird`      | Private remote access           | `192.168.20.97` |
-|  102 | `jellyfin`     | Media server                    | `192.168.20.98` |
-|  104 | `beszel`       | Infrastructure monitoring       | `192.168.20.96` |
-|  105 | `uptime-kuma`  | Service availability monitoring | `192.168.20.95` |
+### Current Workloads
 
----
+- CT100 — Pi-hole / Unbound / DDNS
+- CT101 — NetBird routing peer
+- CT102 — Jellyfin
+- CT104 — Beszel
+- CT105 — Uptime Kuma
+- CT106 — Nginx / Certbot
 
-## Planned Hardware
+Reserved:
 
-### Dell OptiPlex 9020 SFF
+- VM103 — future media stack
+- VM107 — future Homarr
 
-The Dell OptiPlex 9020 SFF is planned as the dedicated storage and game-server host.
+## pve-2
 
-Planned responsibilities include:
+### System
 
-* NAS storage
-* NFS storage for the 3060
-* Pterodactyl
-* Game servers
+- Model: Dell OptiPlex 9020 SFF
+- Hostname: `pve-2`
+- IP address: `192.168.20.101`
+- CPU: Intel Core i7-4770
+- CPU configuration: 4 physical cores / 8 logical threads
+- RAM: 16 GB
+- Hypervisor: Proxmox VE
+- Proxmox VE version: 9.2.2
+- Kernel: `7.0.2-6-pve`
 
-The 9020 is intentionally not planned to host the main media services. Jellyfin and the future media automation stack will remain on the 3060, while bulk media storage will reside on the 9020.
+### Current Workloads
 
-### Storage
+VM108 is currently hosted on `pve-2`:
 
-A 4 TB Western Digital Blue HDD is planned for the NAS:
+- Pterodactyl Panel
+- IP: `192.168.20.111`
+- 6 vCPU
+- 12 GB RAM
+- 40 GB virtual disk
 
-```text
-Model: WD40EZRZ
-Capacity: 4 TB
-```
+The remaining host resources are available for future workloads and storage services.
 
-The drive is intended primarily for media storage and NFS access.
+## pve-2 Storage
 
-The WD40EZRZ is a conventional desktop HDD rather than a purpose-built NAS drive. It can be used for the planned homelab storage system, but its suitability for long-term 24/7 operation should be monitored rather than assuming it has the same workload characteristics as a NAS-rated drive.
+The current Proxmox installation uses the internal SSD for the operating system and virtual machine storage.
 
-### 9020 Power Considerations
+The system contains:
 
-The 9020 SFF uses a Dell 255 W power supply.
+- Samsung MZ7PC128HA SSD
+- Approximately 119 GB raw capacity
 
-The existing system has:
+VM108 currently uses a virtual disk on Proxmox `local-lvm`.
 
-* one standard SATA power connection
-* one additional Dell proprietary/slim power connection associated with the optical-drive configuration
+### Future HDD Storage
 
-A Dell SATA power splitter is planned to allow the standard SATA power connection to supply additional standard SATA drives.
+A WD Blue 4 TB HDD is intended to be installed in `pve-2`.
 
-The exact current capacity of the proprietary Dell power connection has not been established and should not be assumed without appropriate documentation or measurement.
+Drive:
 
----
+- Model: WD40EZRZ
+- Capacity: 4 TB
+- Type: WD Blue consumer desktop HDD
+- Current status: Not yet installed
 
-## Hardware Roles
+The intended purpose of this drive is bulk file storage rather than Proxmox VM storage.
 
-The intended hardware separation is:
+Planned architecture:
 
-```text
-Dell OptiPlex 3060
-└── Proxmox
-    ├── Infrastructure
-    │   ├── Pi-hole
-    │   ├── Unbound
-    │   ├── Nginx
-    │   └── NetBird
-    │
-    ├── Media
-    │   └── Jellyfin
-    │
-    └── Monitoring
-        ├── Beszel
-        └── Uptime Kuma
+    pve-2
+      |
+      +--> Internal SSD
+      |     |
+      |     +--> Proxmox
+      |     +--> VM108
+      |
+      +--> 4 TB HDD
+            |
+            +--> Host filesystem
+            |
+            +--> NFS/fileshare
+            |
+            +--> Future media storage
 
+The HDD will not be used as the primary storage location for the Pterodactyl VM.
 
-Dell OptiPlex 9020
-└── Proxmox
-    ├── NAS / NFS
-    └── Pterodactyl
-        └── Game servers
-```
+## HDD Power Considerations
 
-This separation keeps storage and game-server workloads independent from the primary infrastructure and media services.
+The OptiPlex 9020 SFF uses Dell-specific internal power cabling.
 
----
+The system currently has:
 
-## Planned Hardware Expansion
+- One standard SATA power connection
+- One additional Dell proprietary/slim connector associated with the optical-drive configuration
 
-The following hardware changes are planned but are not yet part of the current network:
+Because the proprietary connector has not been fully established as a suitable HDD power source, additional SATA power hardware is planned rather than assuming that connector can safely power another standard HDD.
 
-1. Dell OptiPlex 9020
-2. NAS storage
-3. Additional HDDs as required
-4. Network switch
-5. Dedicated pfSense router
-6. Managed switch for VLAN support
+The exact power arrangement should be verified before the 4 TB HDD is installed.
 
-The network switch and pfSense infrastructure will eventually allow the network to be segmented into VLANs.
+## Bundled 1 TB HDD
 
----
+The OptiPlex 9020 also came with a 1 TB HDD.
 
-## Hardware Documentation Philosophy
+Its eventual role has not yet been finalised.
 
-Hardware specifications are documented only when they have been confirmed.
+It should not be considered part of the storage architecture until its condition, model, and intended purpose are confirmed.
 
-Where a specification has not been verified, it is deliberately described as unknown or planned rather than estimated.
+## Storage Design
 
-This is particularly important for:
+The homelab does not use TrueNAS or OpenMediaVault.
 
-* Dell proprietary power connectors
-* maximum supported drive configurations
-* power-delivery limits
-* future hardware compatibility
+The current design is intentionally simpler:
 
----
+- Proxmox remains the host operating system.
+- The 4 TB HDD will be mounted directly on `pve-2`.
+- The filesystem will be managed by the Proxmox host.
+- NFS will provide network access to other systems.
+- Future media services will consume storage over the network.
 
-## Key Commands
+This keeps storage management separate from the virtual machine storage used by Proxmox.
 
-The following commands have been useful when identifying and managing the homelab hardware and Proxmox host.
+## Hardware Expansion
 
-### `hostnamectl`
+Potential future hardware improvements include:
 
-```bash
-hostnamectl
-```
+- Managed network switch
+- Additional HDD storage
+- Improved HDD power/connectivity
+- Larger or additional storage drives
+- Dedicated firewall/router hardware
+- VLAN-capable network infrastructure
 
-Displays information about the system hostname and operating system.
+These are future improvements rather than requirements for the current deployment.
 
-The hostname was changed from `pve` to:
+## Hardware Design Principles
 
-```text
-pve-1
-```
+The homelab hardware is being used to prioritise:
 
-The hostname was changed with:
+1. Reuse of existing hardware.
+2. Low power consumption where practical.
+3. Separation of infrastructure workloads.
+4. Simple and recoverable storage architecture.
+5. Incremental expansion rather than purchasing a dedicated NAS immediately.
 
-```bash
-hostnamectl set-hostname pve-1
-```
-
-### `ip addr`
-
-```bash
-ip addr
-```
-
-Displays the system's network interfaces and assigned IP addresses.
-
-This is useful for identifying the current network configuration of a Proxmox host.
-
-### `lsblk`
-
-```bash
-lsblk
-```
-
-Lists block devices such as HDDs, SSDs and their partitions.
-
-This is useful when identifying storage devices before configuring them for NAS or virtualisation workloads.
-
-### `lscpu`
-
-```bash
-lscpu
-```
-
-Displays information about the system CPU, including architecture, cores and threads.
-
-### `free`
-
-```bash
-free -h
-```
-
-Displays system memory usage in human-readable units.
-
-### `lsusb`
-
-```bash
-lsusb
-```
-
-Lists USB devices connected to the system.
-
-### `lspci`
-
-```bash
-lspci
-```
-
-Lists PCI and PCIe devices, which is useful when identifying network adapters, graphics devices and other expansion hardware.
-
-### Proxmox `pct`
-
-```bash
-pct list
-```
-
-Lists the LXC containers running on a Proxmox host.
-
-For example:
-
-```text
-VMID  Status   Name
-100   running  pihole-nginx
-101   running  netbird
-102   running  jellyfin
-104   running  beszel
-105   running  uptime-kuma
-```
-
-Individual containers can be managed with commands such as:
-
-```bash
-pct start <VMID>
-pct stop <VMID>
-pct status <VMID>
-```
-
-### Proxmox `qm`
-
-```bash
-qm list
-```
-
-Lists virtual machines managed by Proxmox.
-
-This will become particularly relevant when the Pterodactyl VM is created on the 9020.
-
----
-
-## Future Updates
-
-This document should be updated when:
-
-* the Dell 9020 is installed
-* NAS storage is configured
-* additional drives are installed
-* the network switch is purchased
-* the pfSense router is introduced
-* hardware is replaced or upgraded
-* hardware specifications are confirmed or corrected
-
-Changes should be committed to Git so that the hardware history of the homelab remains traceable.
+The 9020's additional compute resources are currently being used for Pterodactyl and will later provide bulk storage.
