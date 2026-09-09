@@ -1,360 +1,554 @@
 # Network
 
-## Overview
+This document describes the current network architecture of the homelab, including addressing, DNS, reverse proxying, remote access, and the planned network expansion.
 
-The homelab currently operates on a single flat LAN.
+---
 
-The network is intentionally simple at this stage, with both Proxmox hosts connected directly to the existing home router.
+## Network Overview
 
-Future networking plans include a managed switch, VLANs, and improved firewall/routing.
+The homelab currently operates on a single LAN:
 
-## Current Network
+```text id="q2f8z1"
+Network: 192.168.20.0/24
+Gateway: 192.168.20.1
+```
 
-| Component | Address |
-|---|---|
-| LAN | `192.168.20.0/24` |
-| Router / Gateway | `192.168.20.1` |
-| pve-1 | `192.168.20.100` |
-| pve-2 | `192.168.20.101` |
+The current network does not use VLAN segmentation or a dedicated firewall/router.
 
-All infrastructure services currently communicate across the same LAN.
+All Proxmox hosts and homelab services are currently reachable over the local LAN according to their configured firewall and service access rules.
 
-## Proxmox Hosts
+A managed switch and network segmentation are planned for a future stage of the homelab.
 
-### pve-1
+---
 
-    Hostname: pve-1
-    IP:       192.168.20.100
+# IP Addressing
 
-### pve-2
+The current static/reserved addressing is:
 
-    Hostname: pve-2
-    IP:       192.168.20.101
+| Address          | Host / Service      | Purpose                   |
+| ---------------- | ------------------- | ------------------------- |
+| `192.168.20.1`   | Router              | Default gateway           |
+| `192.168.20.93`  | CT103 `mediastack`  | Media automation          |
+| `192.168.20.94`  | CT106 `nginx`       | Reverse proxy / TLS       |
+| `192.168.20.95`  | CT105 `uptime-kuma` | Service monitoring        |
+| `192.168.20.96`  | CT104 `beszel`      | System monitoring         |
+| `192.168.20.97`  | CT101 `netbird`     | NetBird routing peer      |
+| `192.168.20.98`  | CT102 `jellyfin`    | Media server              |
+| `192.168.20.99`  | CT100 `pihole`      | DNS / Pi-hole             |
+| `192.168.20.100` | `pve-1`             | Proxmox                   |
+| `192.168.20.101` | `pve-2`             | Proxmox / storage         |
+| `192.168.20.102` | `RobynPC`           | Administration desktop    |
+| `192.168.20.111` | VM108 `pterodactyl` | Pterodactyl Panel / Wings |
 
-The two hosts are members of the same Proxmox cluster:
+The router's DHCP pool begins at `.150`, allowing the lower address range to be used for infrastructure.
 
-    Cluster: homelab
+---
 
-HA is deliberately disabled.
+# Proxmox Network
 
-## Service IP Allocation
+The two physical Proxmox systems are:
 
-| VM/CT | Hostname | IP | Primary Service |
-|---|---|---|---|
-| CT100 | `pihole` | `192.168.20.99` | Pi-hole / Unbound / DDNS |
-| CT101 | `netbird` | `192.168.20.97` | NetBird |
-| CT102 | `jellyfin` | `192.168.20.98` | Jellyfin |
-| CT104 | `beszel` | `192.168.20.96` | Beszel |
-| CT105 | `uptime-kuma` | `192.168.20.95` | Uptime Kuma |
-| CT106 | `nginx` | `192.168.20.94` | Nginx / Certbot |
-| VM108 | `pterodactyl` | `192.168.20.111` | Pterodactyl Panel |
+```text id="q5g2r9"
+pve-1
+192.168.20.100
 
-Reserved:
+pve-2
+192.168.20.101
+```
 
-| VMID | Planned Service |
-|---|---|
-| VM103 | Media stack |
-| VM107 | Homarr |
+Both systems belong to the:
 
-## DNS
+```text id="j0g6zq"
+homelab
+```
 
-CT100 provides the primary DNS service for the homelab.
+Proxmox cluster.
 
-    Pi-hole
-    192.168.20.99:53
-         |
-         v
-    Unbound
-    127.0.0.1:5335
+The current cluster uses a simple LAN-based network and does not currently have dedicated management, storage, migration, or cluster VLANs.
 
-Pi-hole provides:
+---
 
-- DNS filtering
-- Local DNS records
-- Internal split-DNS overrides
+# Service Network Layout
 
-Unbound provides recursive DNS resolution.
+The primary service architecture is:
 
-## Internal DNS
+```text id="v2w8bp"
+                         Router
+                      192.168.20.1
+                            │
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+        ┌─────▼─────┐               ┌─────▼─────┐
+        │   pve-1   │               │   pve-2   │
+        │ .100      │               │ .101      │
+        └─────┬─────┘               └─────┬─────┘
+              │                           │
+       ┌──────┼───────────────┐     ┌─────┴──────┐
+       │      │       │       │     │            │
+      .93    .94     .95     .96   .111       Storage
+     Media  Nginx   Kuma   Beszel  Ptero         NFS
+       │      │
+      .98    .99
+    Jellyfin Pi-hole
+```
 
-Internal service hostnames resolve to CT106, which acts as the central reverse proxy.
+---
 
-| Hostname | Internal Address |
-|---|---|
-| `jellyfin.robynshomelab.dev` | `192.168.20.94` |
-| `status.robynshomelab.dev` | `192.168.20.94` |
-| `beszel.robynshomelab.dev` | `192.168.20.94` |
-| `pihole.robynshomelab.dev` | `192.168.20.94` |
-| `panel.robynshomelab.dev` | `192.168.20.94` |
+# DNS Architecture
 
-This allows clients on the LAN to use the same hostnames regardless of whether the service is physically located on another VM or container.
+Pi-hole provides the primary DNS service for the homelab:
 
-## Reverse Proxy
+```text id="qbyj3p"
+192.168.20.99:53
+```
 
-CT106 is the central Nginx reverse proxy.
+Unbound runs behind Pi-hole and performs recursive DNS resolution.
 
-    CT106
-    192.168.20.94
-         |
-         +--> Jellyfin
-         |    192.168.20.98:8096
-         |
-         +--> Uptime Kuma
-         |    192.168.20.95:3001
-         |
-         +--> Beszel
-         |    192.168.20.96:8090
-         |
-         +--> Pi-hole
-         |    192.168.20.99:8080
-         |
-         +--> Pterodactyl Panel
-              192.168.20.111:80
+The local DNS path is:
 
-CT106 handles HTTPS and TLS termination.
+```text id="lq8d4e"
+Client
+  │
+  ▼
+Pi-hole
+192.168.20.99:53
+  │
+  ▼
+Unbound
+  │
+  ▼
+Internet DNS hierarchy
+```
 
-Backend services currently communicate with Nginx over the internal LAN using HTTP where appropriate.
+Pi-hole is also used for internal DNS records.
 
-## Pterodactyl Network Path
+---
 
-The Pterodactyl Panel is hosted on VM108:
+# Split DNS
 
-    VM108
-    192.168.20.111
+The domain:
 
-Clients access the Panel through the Nginx reverse proxy:
+```text id="e0c8a6"
+robynshomelab.dev
+```
 
-    Client
-      |
-      | HTTPS
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      | HTTP
-      v
-    VM108
-    192.168.20.111
-      |
-      v
-    Pterodactyl Panel
+is used for both internal service access and public DNS/ACME purposes.
 
-The Panel is intended to remain a private service.
+Internally, Pi-hole resolves service hostnames to the Nginx reverse proxy.
 
-There is currently no direct router port forwarding to VM108.
+Current internal records include:
 
-## NetBird
+```text id="p4j9e7"
+panel.robynshomelab.dev  → 192.168.20.94
+jellyfin.robynshomelab.dev → 192.168.20.94
+status.robynshomelab.dev  → 192.168.20.94
+beszel.robynshomelab.dev  → 192.168.20.94
+pihole.robynshomelab.dev  → 192.168.20.94
+```
 
-CT101 operates as the NetBird routing peer.
+The Wings hostname is directed to the Pterodactyl VM:
 
-    CT101
-    192.168.20.97
+```text id="6h8k3a"
+wings.robynshomelab.dev → 192.168.20.111
+```
 
-NetBird provides remote access to selected internal network resources without exposing those resources directly to the Internet.
+This allows clients on the LAN to use the same hostnames as the reverse-proxied services without requiring those services to be directly exposed on the LAN.
 
-Current routed networks/hosts include:
+---
 
-    192.168.20.94/32
-    192.168.20.99/32
+# Reverse Proxy Network Path
 
-These provide access to:
+Nginx operates on CT106:
 
-- CT106 Nginx
-- CT100 Pi-hole
+```text id="y9p4vn"
+192.168.20.94
+```
 
-## NetBird DNS
+HTTPS connections terminate at Nginx.
 
-NetBird clients use Pi-hole as their DNS resolver:
+The current internal routing is:
 
-    192.168.20.99:53
+```text id="4z1g3c"
+Client
+  │
+  │ HTTPS :443
+  ▼
+Nginx
+192.168.20.94
+  │
+  ├── Jellyfin → 192.168.20.98:8096
+  ├── Uptime Kuma → 192.168.20.95:3001
+  ├── Beszel → 192.168.20.96:8090
+  ├── Pi-hole → 192.168.20.99:8080
+  └── Pterodactyl → 192.168.20.111:80
+```
 
-This means NetBird clients can receive the same DNS filtering and internal hostname resolution as LAN clients.
+Nginx therefore provides the central HTTPS entry point for the homelab's web services.
 
-The intended flow is:
+---
 
-    NetBird Client
-          |
-          v
-    NetBird Network
-          |
-          v
-    CT101
-    192.168.20.97
-          |
-          +--> Pi-hole
-          |    192.168.20.99
-          |
-          +--> Nginx
-               192.168.20.94
-
-## Pterodactyl + NetBird
-
-The current Panel does not require a direct NetBird route to VM108.
-
-Instead:
-
-    NetBird Client
-          |
-          v
-    CT101 NetBird
-          |
-          | route: 192.168.20.94/32
-          v
-    CT106 Nginx
-          |
-          v
-    VM108
-    192.168.20.111
-
-Later, VM108 will have its own NetBird peer.
-
-This will allow game-server networking to be separated from the Panel's access path.
-
-The future architecture is:
-
-    Internet
-       |
-       v
-    NetBird
-       |
-       v
-    VM108
-       |
-       +--> Wings
-       |
-       +--> Docker
-       |
-       +--> Game servers
-
-## Cloudflare
+# Cloudflare
 
 Cloudflare is authoritative for:
 
-    robynshomelab.dev
+```text id="x8m5h4"
+robynshomelab.dev
+```
 
-Cloudflare is currently used for:
+Cloudflare is used for:
 
-- Authoritative DNS
-- DDNS
-- Let's Encrypt DNS-01 validation
+* Authoritative DNS
+* Dynamic DNS
+* ACME DNS-01 validation
 
-Cloudflare proxying is not currently used.
+Cloudflare's proxy/CDN functionality is **not** enabled for homelab service traffic.
 
-Public DNS records exist for services such as:
+DNS records are intentionally configured as DNS-only.
 
-    home.robynshomelab.dev
-    panel.robynshomelab.dev
+---
 
-These records point to the current WAN address.
+# Public DNS vs Internal Access
 
-The `panel` record is DNS-only and does not provide direct public access to the Panel because there is no router port forwarding.
+The Panel hostname is an important example of the split-DNS architecture.
 
-Internal clients resolve the Panel hostname through Pi-hole to:
+Public Cloudflare DNS contains:
 
-    panel.robynshomelab.dev
-        |
-        v
-    192.168.20.94
+```text id="r1h4bw"
+panel.robynshomelab.dev
+        │
+        ▼
+WAN IP
+```
 
-This is deliberate split-DNS behaviour.
+Internally, Pi-hole overrides that hostname:
 
-## Internet Exposure
+```text id="3p0j7v"
+panel.robynshomelab.dev
+        │
+        ▼
+192.168.20.94
+        │
+        ▼
+Nginx
+        │
+        ▼
+192.168.20.111
+```
 
-There is currently no router port forwarding for homelab services.
+The public DNS record exists primarily to maintain the public hostname and allow Cloudflare DNS-01 certificate validation.
 
-The intended access model is:
+It does **not** provide direct public access to the Panel.
 
-    LAN Client
-        |
-        v
-    Internal DNS
-        |
-        v
-    Nginx
-        |
-        v
-    Internal Service
+---
 
-or:
+# Router and Port Forwarding
 
-    NetBird Client
-        |
-        v
-    NetBird Routing Peer
-        |
-        v
-    Nginx
-        |
-        v
-    Internal Service
+The router is:
 
-Cloudflare DNS does not imply that the services are publicly reachable.
+```text id="x0b7wp"
+192.168.20.1
+```
 
-## Current Firewall Model
+There is currently **no router port forwarding** for homelab services.
 
-The current network relies primarily on the existing home router and host/service configuration.
+This is intentional.
 
-The Pterodactyl VM currently does not have its own active Proxmox firewall configuration.
+Remote access is provided through NetBird rather than exposing individual services directly to the Internet.
 
-Firewall rules will be refined after Wings, Docker, NetBird, and the actual game-server allocations are deployed.
+The current design therefore avoids opening inbound WAN ports for:
 
-This avoids prematurely restricting Docker or game-server networking before the final port requirements are known.
+* SSH
+* Pterodactyl
+* Jellyfin
+* Pi-hole
+* Monitoring
+* Media services
 
-## Future Network Architecture
+---
 
-The current flat network is temporary.
+# NetBird Network
 
-The planned architecture includes:
+NetBird provides private remote connectivity to the homelab.
 
-- Managed Ethernet switch
-- VLAN support
-- Dedicated firewall/router
-- Separation of infrastructure services
-- Dedicated server/game-server networking
-- More granular access control
-- Improved monitoring of network infrastructure
+There are currently two separate NetBird peers serving different purposes.
 
-Potential future logical separation may include:
+## CT101 Routing Peer
 
-    Management
-        |
-        +--> Proxmox
-        +--> Switch
-        +--> Firewall
+```text id="q3h7ma"
+CT101
+LAN IP:     192.168.20.97
+NetBird IP: 100.113.51.59
+```
 
-    Infrastructure
-        |
-        +--> DNS
-        +--> Monitoring
-        +--> Reverse Proxy
+CT101 operates as a routing peer for selected LAN destinations.
 
-    Services
-        |
-        +--> Jellyfin
-        +--> Media Stack
-        +--> Pterodactyl
+Current routes:
 
-    Storage
-        |
-        +--> NFS
-        +--> Bulk HDD storage
+```text id="b6p0qy"
+192.168.20.94/32
+192.168.20.99/32
+```
 
-    Remote Access
-        |
-        +--> NetBird
+This provides NetBird clients with access to:
 
-The exact VLAN structure has not yet been finalised.
+* Nginx
+* Pi-hole
 
-## Network Design Principles
+NetBird DNS is configured to use:
 
-The network is designed around:
+```text id="n1j6s8"
+192.168.20.99:53
+```
 
-1. Minimal direct Internet exposure.
-2. Centralised reverse proxying.
-3. Internal split DNS.
-4. NetBird for remote private access.
-5. Separation of services at the VM/container level.
-6. Incremental introduction of VLANs and firewall rules.
-7. Avoiding unnecessary public port forwarding.
+---
 
-The network architecture should be updated as physical networking and VLAN infrastructure are introduced.
+## VM108 NetBird Peer
+
+VM108 also runs NetBird independently:
+
+```text id="v4t7nx"
+VM108
+LAN IP:     192.168.20.111
+NetBird IP: 100.113.229.169
+FQDN:       pterodactyl.netbird.cloud
+```
+
+VM108 is **not routed through CT101** for its NetBird connection.
+
+It operates as its own NetBird peer.
+
+This allows direct private access to the Pterodactyl VM for administration and future game-server networking.
+
+---
+
+# NetBird Access Architecture
+
+The current architecture can be represented as:
+
+```text id="5w3m1c"
+                    NetBird Network
+                          │
+             ┌────────────┴────────────┐
+             │                         │
+        NetBird Client            NetBird Client
+             │                         │
+             ▼                         ▼
+          CT101                     VM108
+        100.113.51.59            100.113.229.169
+             │                         │
+             │ LAN routes              │
+             ▼                         ▼
+       192.168.20.94             192.168.20.111
+       192.168.20.99             Pterodactyl
+```
+
+The distinction between the two peers is intentional.
+
+CT101 provides LAN routing, while VM108 provides direct access to the Pterodactyl host.
+
+---
+
+# Storage Network
+
+Bulk storage is provided by pve-2:
+
+```text id="4z8n2m"
+pve-2
+192.168.20.101
+```
+
+The storage is mounted locally at:
+
+```text id="x4g7ad"
+/mnt/homelab-data
+```
+
+Selected directories are exported using NFS.
+
+Current NFS shares include:
+
+```text id="k9x2wc"
+/mnt/homelab-data/media
+/mnt/homelab-data/downloads
+/mnt/homelab-data/games
+```
+
+The media and downloads shares are consumed by the media stack.
+
+The games share is consumed by VM108.
+
+---
+
+# Media Network Path
+
+The media stack operates on CT103:
+
+```text id="8m1f4e"
+CT103
+192.168.20.93
+```
+
+The storage path is:
+
+```text id="q9r5sm"
+pve-2
+192.168.20.101
+   │
+   │ NFS
+   ▼
+pve-1
+   │
+   ▼
+CT103
+192.168.20.93
+```
+
+The media stack then provides content to Jellyfin:
+
+```text id="f6x3pn"
+NFS Storage
+    │
+    ▼
+CT103 Media Stack
+    │
+    ▼
+Media Library
+    │
+    ▼
+Jellyfin CT102
+192.168.20.98
+```
+
+---
+
+# Pterodactyl Network Path
+
+The Pterodactyl VM is:
+
+```text id="a7y4jc"
+VM108
+192.168.20.111
+```
+
+Web access uses the reverse proxy:
+
+```text id="m8q2vd"
+Client
+  │
+  ▼
+Nginx
+192.168.20.94
+  │
+  │ HTTP :80
+  ▼
+Pterodactyl Panel
+192.168.20.111
+```
+
+Wings operates directly on VM108.
+
+The current Wings services include:
+
+```text id="z4p7xs"
+Daemon: 8080
+SFTP:   2022
+```
+
+The final external game-server networking design remains under development.
+
+---
+
+# Desktop Access
+
+The primary administration workstation is:
+
+```text id="f1q8ds"
+RobynPC
+192.168.20.102
+```
+
+It accesses the homelab through the normal LAN.
+
+The desktop also mounts the media NFS share directly from pve-2.
+
+---
+
+# Network Security Model
+
+The current security model is based on:
+
+1. No router port forwarding
+2. Private LAN addressing
+3. NetBird for remote access
+4. Split DNS
+5. Centralised HTTPS termination through Nginx
+6. Cloudflare DNS-only records
+7. Service isolation using separate containers/VMs
+8. Host-level firewalling where configured
+
+The Pterodactyl VM is still awaiting final nftables hardening.
+
+Docker must be considered when implementing the VM108 firewall because Docker-managed networking can interact with host firewall rules.
+
+---
+
+# Future Network Architecture
+
+The current flat LAN is intentionally simple while the homelab is being developed.
+
+Future improvements may include:
+
+```text id="w4c9zr"
+                 Firewall / Router
+                        │
+                 Managed Switch
+                        │
+        ┌───────────────┼───────────────┐
+        │               │               │
+     Servers        Management        Clients
+        │               │               │
+      VLAN           VLAN            VLAN
+```
+
+Potential future VLANs include:
+
+* Server infrastructure
+* Management
+* Storage
+* Trusted clients
+* IoT
+* Guest devices
+* Gaming/services
+
+These VLANs have **not yet been deployed**.
+
+---
+
+# Network Design Principles
+
+The current network is designed around several principles:
+
+### Minimise Internet Exposure
+
+Services should remain private unless there is a specific requirement for public access.
+
+### Centralise Web Access
+
+Web services use Nginx as the central TLS/reverse-proxy layer.
+
+### Separate Remote Access from Public Exposure
+
+NetBird provides private remote access instead of relying on router port forwarding.
+
+### Keep DNS Centralised
+
+Pi-hole provides local DNS and split-DNS records, while Unbound provides recursive resolution.
+
+### Separate Storage from Compute
+
+Bulk storage resides on pve-2 and is exposed through NFS rather than being tightly coupled to an individual application container.
+
+### Expand Gradually
+
+The current flat LAN is sufficient for the present scale. VLANs, managed switching and a dedicated firewall will be introduced when the complexity justifies them.

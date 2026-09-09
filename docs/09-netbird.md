@@ -1,469 +1,513 @@
 # NetBird
 
-## Overview
+NetBird provides private network connectivity to the homelab without requiring router port forwarding.
 
-NetBird provides the homelab's private overlay network and remote access.
+The current deployment uses two independent NetBird peers:
 
-The primary NetBird routing peer is CT101.
+* CT101 as the LAN routing peer
+* VM108 as an independent NetBird peer
 
-Hostname:
+---
 
-    netbird
+# Architecture
 
-IP address:
+```text
+                         NetBird Network
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+          Remote Clients              VM108 Peer
+                 │                  100.113.229.169
+                 │                         │
+                 ▼                         ▼
+              CT101                 Pterodactyl
+          192.168.20.97             192.168.20.111
+                 │
+                 │ LAN routes
+          ┌──────┴──────┐
+          │             │
+          ▼             ▼
+     192.168.20.94  192.168.20.99
+        Nginx          Pi-hole
+```
 
-    192.168.20.97
+CT101 provides access to selected LAN addresses.
 
-VMID:
+VM108 has its own NetBird installation and does not depend on CT101 for NetBird connectivity.
 
-    CT101
+---
 
-NetBird version:
+# CT101 Routing Peer
 
-    0.78.1
+```text
+VMID:     101
+Hostname: netbird
+IP:       192.168.20.97
+```
 
-NetBird provides remote clients with access to selected homelab services without requiring router port forwarding.
+CT101 acts as the NetBird routing peer for selected homelab services.
 
-## Network
+Current NetBird version:
 
-NetBird assigns peers addresses from the NetBird network.
+```text
+0.78.1
+```
 
-CT101 currently has:
+Current NetBird virtual IP:
 
-    IPv4: 100.113.51.59/16
-    IPv6: fda0:124:5d3a:d4ae:ed2e:853c:913a:4d70/64
+```text
+100.113.51.59/16
+```
 
-NetBird FQDN:
+---
 
-    netbird.netbird.cloud
+# LAN Routes
 
-WireGuard port:
+CT101 currently advertises the following routes:
 
-    51820
+```text
+192.168.20.94/32
+192.168.20.99/32
+```
 
-The NetBird interface uses the kernel WireGuard implementation.
+These provide NetBird clients with access to:
 
-## Routing Peer
+```text
+192.168.20.94
+    Nginx
 
-CT101 acts as the routing peer between NetBird and selected services on the LAN.
+192.168.20.99
+    Pi-hole / Unbound / DNS
+```
 
-Current routes:
+The use of `/32` routes intentionally limits NetBird access to the required hosts rather than exposing the entire LAN subnet.
 
-    192.168.20.94/32
-    192.168.20.99/32
+---
 
-These provide access to:
+# Nginx Access
 
-    192.168.20.94
-        CT106 Nginx
+Remote NetBird clients can access the Nginx reverse proxy through:
 
-    192.168.20.99
-        CT100 Pi-hole
+```text
+192.168.20.94
+```
 
-Only the required addresses are routed through CT101.
+The path is:
 
-## Current Routing Architecture
+```text
+Remote NetBird client
+        │
+        ▼
+NetBird
+        │
+        ▼
+CT101
+100.113.51.59
+        │
+        ▼
+192.168.20.94
+        │
+        ▼
+Nginx
+        │
+        ▼
+Internal service
+```
 
-The current architecture is:
+This allows remote clients to use the same HTTPS hostnames used by LAN clients.
 
-    NetBird Client
-          |
-          v
-    NetBird Overlay
-          |
-          v
-    CT101
-    192.168.20.97
-          |
-          +----------------------+
-          |                      |
-          v                      v
-    CT106                  CT100
-    192.168.20.94           192.168.20.99
-    Nginx                    Pi-hole
-          |                      |
-          |                      v
-          |                   Unbound
-          |
-          +--> Internal services
-          |
-          +--> VM108 Panel
+---
 
-## DNS
+# DNS
 
-NetBird clients use Pi-hole for DNS.
+Pi-hole is available to NetBird clients at:
 
-DNS server:
+```text
+192.168.20.99:53
+```
 
-    192.168.20.99:53
+NetBird's global/default nameserver is configured as:
 
-The NetBird global/default nameserver is configured as:
-
-    192.168.20.99:53
+```text
+192.168.20.99:53
+```
 
 for:
 
-    [.]
+```text
+.
+```
 
-This means general DNS queries from NetBird clients are sent through Pi-hole.
+This causes NetBird clients to use the homelab Pi-hole DNS infrastructure.
 
 The DNS path is:
 
-    NetBird Client
-          |
-          v
-    Pi-hole
-    192.168.20.99:53
-          |
-          +--> Local DNS records
-          |
-          +--> Filtering
-          |
-          v
-    Unbound
-    127.0.0.1:5335
+```text
+NetBird client
+      │
+      ▼
+CT101 routing
+      │
+      ▼
+Pi-hole
+192.168.20.99:53
+      │
+      ▼
+Unbound
+      │
+      ▼
+Recursive DNS
+```
 
-## Internal Hostnames
+---
 
-Pi-hole provides internal DNS overrides for homelab services.
+# Split DNS
 
-Current internal service names resolve to CT106:
-
-    jellyfin.robynshomelab.dev -> 192.168.20.94
-    status.robynshomelab.dev  -> 192.168.20.94
-    beszel.robynshomelab.dev  -> 192.168.20.94
-    pihole.robynshomelab.dev  -> 192.168.20.94
-    panel.robynshomelab.dev   -> 192.168.20.94
-
-This allows NetBird clients to use the same service hostnames as LAN clients.
-
-## Pterodactyl Panel
-
-The Pterodactyl Panel is hosted on VM108:
-
-    192.168.20.111
-
-The current NetBird access path is:
-
-    NetBird Client
-          |
-          v
-    CT101
-    192.168.20.97
-          |
-          | 192.168.20.94/32
-          v
-    CT106 Nginx
-    192.168.20.94
-          |
-          | HTTP
-          v
-    VM108
-    192.168.20.111
-          |
-          v
-    Pterodactyl Panel
-
-No direct NetBird route to `192.168.20.111` is currently required for Panel access.
-
-The route to CT106 provides the necessary path.
-
-The Panel remains private and is not intended to be directly exposed to the public Internet.
-
-## Pi-hole Access
-
-NetBird clients can also reach Pi-hole directly through the routed address:
-
-    192.168.20.99
-
-This is required for the NetBird DNS configuration.
-
-The Pi-hole web interface is normally accessed through:
-
-    pihole.robynshomelab.dev
-
-which resolves internally to CT106.
-
-## iPhone Example
-
-An iPhone has previously been observed as a NetBird peer with the address:
-
-    100.113.124.99
-
-Another observed peer address was:
-
-    100.113.48.198
-
-Peer addresses may change and should not be treated as permanent identifiers.
-
-## DNS Verification
-
-DNS traffic from NetBird clients to Pi-hole has been verified previously.
-
-The expected path is:
-
-    NetBird Client
-          |
-          v
-    192.168.20.99:53
-
-Pi-hole should then process the query normally.
-
-A blocked DNS request may return:
-
-    0.0.0.0
-
-or:
-
-    ::
-
-This is expected Pi-hole filtering behaviour and does not necessarily indicate a NetBird or DNS failure.
-
-## Service Access
-
-From a NetBird client, internal services should be reachable using their normal hostnames.
+Because NetBird clients use Pi-hole, they receive the same internal DNS records as LAN clients.
 
 For example:
 
-    https://panel.robynshomelab.dev
+```text
+panel.robynshomelab.dev
+        │
+        ▼
+192.168.20.94
+```
 
-The expected flow is:
+This allows a remote NetBird client to access:
 
-    NetBird Client
-          |
-          v
-    NetBird
-          |
-          v
-    CT101
-          |
-          v
-    CT106
-          |
-          v
-    VM108
+```text
+https://panel.robynshomelab.dev
+```
 
-Other reverse-proxied services follow the same general pattern.
+using the same hostname as an internal LAN client.
 
-## System Service
+---
 
-NetBird runs as a systemd service on CT101.
+# VM108 NetBird Peer
 
-Check its status with:
+VM108 runs its own independent NetBird installation.
 
-    systemctl status netbird
+```text
+VMID:     108
+Hostname: pterodactyl
+IP:       192.168.20.111
+```
 
-The service is enabled so that it starts automatically with the container.
+NetBird version:
 
-## Verification
+```text
+0.78.1
+```
 
-### Check NetBird status
+NetBird virtual IP:
+
+```text
+100.113.229.169/16
+```
+
+NetBird FQDN:
+
+```text
+pterodactyl.netbird.cloud
+```
+
+VM108 is therefore independently reachable over the NetBird network.
+
+---
+
+# Independent Peer Design
+
+VM108 does **not** use CT101 as its NetBird peer.
+
+The architecture is:
+
+```text
+NetBird
+   │
+   ├───────────────┐
+   │               │
+   ▼               ▼
+ CT101           VM108
+   │               │
+   ▼               ▼
+ LAN routes     Pterodactyl
+```
+
+CT101 and VM108 are separate NetBird peers.
+
+This distinction is important when troubleshooting connectivity.
+
+---
+
+# Pterodactyl Access
+
+The Pterodactyl Panel is accessed internally through Nginx:
+
+```text
+NetBird client
+      │
+      ▼
+CT101
+      │
+      ▼
+192.168.20.94
+      │
+      ▼
+Nginx
+      │
+      ▼
+192.168.20.111:80
+      │
+      ▼
+Pterodactyl Panel
+```
+
+The VM108 NetBird peer also provides a direct private path to VM108 itself.
+
+The two paths serve different purposes:
+
+```text
+CT101 route
+    → Nginx
+    → Panel hostname / HTTPS
+
+VM108 NetBird peer
+    → VM108 itself
+```
+
+---
+
+# Network Security Model
+
+NetBird is used as the remote-access layer instead of exposing homelab services directly to the Internet.
+
+The current design intentionally has:
+
+```text
+No router port forwarding
+```
+
+Remote access is instead:
+
+```text
+Remote device
+      │
+      ▼
+NetBird
+      │
+      ├── CT101 → selected LAN services
+      │
+      └── VM108 → Pterodactyl host
+```
+
+This limits direct Internet exposure.
+
+---
+
+# Current NetBird Addressing
+
+| Device | LAN IP           | NetBird IP        | Role             |
+| ------ | ---------------- | ----------------- | ---------------- |
+| CT101  | `192.168.20.97`  | `100.113.51.59`   | LAN routing peer |
+| VM108  | `192.168.20.111` | `100.113.229.169` | Independent peer |
+
+---
+
+# Troubleshooting
+
+## Check NetBird Status
 
 On CT101:
 
-    netbird status
+```bash
+netbird status
+```
 
-### Check systemd
+On VM108:
 
-    systemctl status netbird
+```bash
+netbird status
+```
 
-### Check NetBird IP
+Both peers should report an active connection.
 
-    ip addr
+---
 
-The NetBird interface should have the assigned overlay address.
+## Check NetBird Version
 
-### Check routes
+```bash
+netbird version
+```
 
-On CT101:
+The current deployed version is:
 
-    ip route
+```text
+0.78.1
+```
 
-Verify that the required LAN routes are present.
+---
 
-### Test Pi-hole
+## Test CT101 Routes
+
+From a NetBird client, test:
+
+```bash
+ping 192.168.20.94
+```
+
+and:
+
+```bash
+ping 192.168.20.99
+```
+
+If these fail, investigate CT101 routing before troubleshooting the destination services.
+
+---
+
+## Test DNS
 
 From a NetBird client:
 
-    ping 192.168.20.99
+```bash
+dig @192.168.20.99 example.com
+```
 
-Then test DNS:
+For an internal hostname:
 
-    nslookup example.com 192.168.20.99
+```bash
+dig @192.168.20.99 panel.robynshomelab.dev
+```
 
-### Test Nginx
+The internal result should be:
+
+```text
+192.168.20.94
+```
+
+---
+
+## Test HTTPS
 
 From a NetBird client:
 
-    ping 192.168.20.94
+```bash
+curl -I https://panel.robynshomelab.dev
+```
 
-Then test the reverse proxy:
+The request should resolve through Pi-hole to Nginx and then be proxied to VM108.
 
-    curl -I https://panel.robynshomelab.dev
+---
 
-### Test Panel backend path
+# Troubleshooting Path
 
-The expected path is:
+When a NetBird client cannot access a homelab service, determine which path is failing.
 
-    NetBird Client
-        ->
-    CT101
-        ->
-    192.168.20.94
-        ->
-    VM108 192.168.20.111
+```text
+NetBird client
+      │
+      ▼
+NetBird connection
+      │
+      ▼
+Routing peer
+      │
+      ▼
+LAN route
+      │
+      ▼
+Destination host
+      │
+      ▼
+Service
+```
 
-The Panel does not require a direct NetBird route to VM108 at this stage.
+For DNS-related failures:
 
-## Troubleshooting
+```text
+NetBird client
+      │
+      ▼
+Pi-hole
+      │
+      ▼
+Unbound / local DNS
+```
 
-### NetBird is disconnected
+For Pterodactyl Panel access:
 
-On CT101:
+```text
+NetBird client
+      │
+      ▼
+CT101
+      │
+      ▼
+192.168.20.94
+      │
+      ▼
+Nginx
+      │
+      ▼
+192.168.20.111:80
+```
 
-    systemctl status netbird
+For direct VM108 NetBird access:
 
-Then:
+```text
+NetBird client
+      │
+      ▼
+VM108
+100.113.229.169
+```
 
-    netbird status
+---
 
-Check the service logs if required:
+# Known Previous Test
 
-    journalctl -u netbird
+A previous NetBird managed Reverse Proxy test was performed for Pterodactyl/Minecraft TCP traffic.
 
-### Pi-hole cannot be reached
+The test successfully established public connectivity to the temporary endpoint, but the traffic did not reach VM108 as expected.
 
-Test:
+Troubleshooting of this test was paused.
 
-    ping 192.168.20.99
+This should not be treated as part of the current production access architecture.
 
-Then:
+The current documented design is based on:
 
-    dig @192.168.20.99 example.com
+* CT101 LAN routing
+* VM108's independent NetBird peer
+* Nginx reverse proxy
+* No router port forwarding
 
-If the address is unreachable, investigate the CT101 route before troubleshooting DNS itself.
+---
 
-### Internal hostnames do not resolve
+# Operational Principles
 
-Test:
+The current NetBird deployment follows these principles:
 
-    dig @192.168.20.99 panel.robynshomelab.dev
+* CT101 provides selected LAN routes
+* LAN routes use `/32` addresses where practical
+* Pi-hole provides DNS to NetBird clients
+* CT101 routes access to Nginx and Pi-hole
+* VM108 operates as an independent NetBird peer
+* NetBird provides remote private access
+* Router port forwarding is not required
+* Public reverse-proxy experiments are not part of the production architecture
 
-Expected result:
+---
 
-    192.168.20.94
+# Future Improvements
 
-If this works but HTTPS does not, investigate CT106 rather than Pi-hole.
+Potential future improvements include:
 
-### Panel hostname resolves but Panel is unreachable
+* Additional routed services
+* More granular NetBird access policies
+* Monitoring of NetBird peer health
+* Documented peer groups and ACLs
+* Additional independent peers where useful
+* Improved redundancy for remote access
 
-Check the path in order:
-
-1. NetBird connection.
-2. CT101 routing.
-3. CT106 reachability.
-4. CT106 Nginx.
-5. VM108 reachability.
-6. VM108 local Nginx.
-7. Pterodactyl Panel.
-
-## Security
-
-NetBird is used to avoid exposing internal management services directly to the Internet.
-
-The current architecture does not require router port forwarding for:
-
-- Pi-hole
-- Nginx
-- Pterodactyl Panel
-- Proxmox management
-- Other internal management services
-
-Access should be granted through the LAN or NetBird as appropriate.
-
-NetBird credentials and private configuration data must not be committed to GitHub.
-
-## Future VM108 Peer
-
-VM108 will eventually run NetBird directly.
-
-This is intentionally separate from CT101.
-
-The future architecture is:
-
-    VM108
-      |
-      +--> NetBird Peer
-      |
-      +--> Wings
-            |
-            +--> Docker
-                  |
-                  +--> Game Servers
-
-The VM108 NetBird peer will be used primarily for game-server networking.
-
-It will not replace CT101 as the existing LAN routing peer.
-
-## Future Game-Server Networking
-
-The planned game-server architecture is:
-
-    Internet
-       |
-       v
-    NetBird Reverse Proxy
-       |
-       v
-    NetBird Tunnel
-       |
-       v
-    VM108
-       |
-       v
-    Wings
-       |
-       v
-    Specific Game Server
-
-Game-server networking will be configured after Wings and the first game server are deployed.
-
-Only the required game allocations should be exposed.
-
-The Pterodactyl Panel should remain separate from the public game-server access path.
-
-## Session Persistence
-
-NetBird is configured as a systemd service and has been verified to persist across normal service restarts and container operation.
-
-Long-term authentication-session persistence should not be assumed beyond the configured NetBird authentication/session behaviour without verification.
-
-If authentication expires, re-authentication may be required.
-
-## Current State
-
-CT101 is the active NetBird routing peer.
-
-Current routed addresses:
-
-    192.168.20.94/32
-    192.168.20.99/32
-
-Current DNS server:
-
-    192.168.20.99:53
-
-Current Panel access:
-
-    NetBird Client
-        |
-        v
-    CT101
-        |
-        v
-    CT106 Nginx
-        |
-        v
-    VM108 Pterodactyl Panel
-
-Future game-server networking will use a dedicated NetBird peer on VM108.
+Any additional route or peer should be documented here after it has been deployed and tested.

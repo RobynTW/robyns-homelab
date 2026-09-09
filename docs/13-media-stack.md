@@ -1,345 +1,804 @@
 # Media Stack
 
-## Overview
+The media stack runs on CT103 and provides automated media acquisition, organisation, and request management.
 
-The media stack is a planned application stack for automating media discovery, organisation, downloading, and metadata management.
+The stack is deployed using Docker Compose and integrates with the homelab's NFS-backed media storage and Jellyfin server.
 
-The stack is intended to integrate with the existing Jellyfin server.
+---
 
-The media stack is **not yet deployed**.
+# Container
 
-Reserved VMID:
+```text
+VMID:     103
+Hostname: mediastack
+IP:       192.168.20.93
+Host:     pve-1
+OS:       Debian 12 Bookworm
+```
 
-    VM103
+The container is an unprivileged LXC with nesting enabled to support Docker.
 
-Planned host:
+---
 
-    pve-1
+# Services
 
-## Planned Components
+The current stack consists of:
 
-The planned stack includes:
+| Service      | Port | Purpose                       |
+| ------------ | ---: | ----------------------------- |
+| qBittorrent  | 8080 | Download client               |
+| Prowlarr     | 9696 | Indexer management            |
+| Sonarr       | 8989 | TV and anime management       |
+| Radarr       | 7878 | Movie management              |
+| Bazarr       | 6767 | Subtitle management           |
+| Seerr        | 5055 | Media request management      |
+| FlareSolverr | 8191 | Cloudflare challenge handling |
 
-| Component | Purpose | Status |
-|---|---|---|
-| Seerr / Jellyseerr | Media request management | Planned |
-| Sonarr | TV series management | Planned |
-| Radarr | Movie management | Planned |
-| Prowlarr | Indexer management | Planned |
-| Bazarr | Subtitle management | Planned |
-| qBittorrent | Download client | Planned |
+The containers communicate using the Docker Compose network.
 
-The exact final application set may change as the media architecture is implemented.
+---
 
-## Jellyfin Integration
+# Architecture
 
-Jellyfin is already deployed separately on CT102.
+```text
+                         User
+                          │
+                          ▼
+                       Seerr
+                    :5055 / CT103
+                          │
+             ┌────────────┴────────────┐
+             │                         │
+             ▼                         ▼
+          Radarr                    Sonarr
+           :7878                     :8989
+             │                         │
+             └────────────┬────────────┘
+                          │
+                          ▼
+                      Prowlarr
+                       :9696
+                          │
+                          ▼
+                    Indexer sources
+                          │
+                          ▼
+                    qBittorrent
+                       :8080
+                          │
+                          ▼
+                  /mnt/downloads
+                          │
+                          ▼
+                Media import/organisation
+                          │
+             ┌────────────┴────────────┐
+             ▼                         ▼
+        /mnt/media/movies         /mnt/media/tv
+             │                         │
+             └────────────┬────────────┘
+                          ▼
+                       Jellyfin
+                    CT102 .98:8096
+```
+
+---
+
+# Storage Architecture
+
+The media stack does not store the primary media library on the container's local virtual disk.
+
+Media is stored on the physical 4TB WD Blue disk attached to pve-2.
+
+The storage path is:
+
+```text
+pve-2
+192.168.20.101
+     │
+     ▼
+/mnt/homelab-data
+     │
+     ├── media
+     │
+     └── downloads
+```
+
+pve-2 exports these directories through NFS.
+
+pve-1 mounts them locally:
+
+```text
+/mnt/homelab-media
+/mnt/homelab-downloads
+```
+
+CT103 then receives them through LXC bind mounts:
+
+```text
+pve-1 /mnt/homelab-media
+        │
+        ▼
+CT103 /mnt/media
+
+pve-1 /mnt/homelab-downloads
+        │
+        ▼
+CT103 /mnt/downloads
+```
+
+This provides a single media library shared between the media stack and other services.
+
+---
+
+# Storage Layout
+
+The physical storage layout is:
+
+```text
+/mnt/homelab-data/
+├── media/
+│   ├── anime/
+│   ├── books/
+│   ├── movies/
+│   ├── music/
+│   └── tv/
+├── downloads/
+│   ├── incomplete/
+│   └── complete/
+├── games/
+├── backups/
+└── shared/
+```
+
+The media stack primarily uses:
+
+```text
+/mnt/media
+/mnt/downloads
+```
+
+---
+
+# Docker
+
+Docker is installed from the official Docker repository.
+
+Current components include:
+
+```text
+Docker Engine: 29.8.0
+Docker Compose: 5.5.1
+containerd:     2.3.5
+runc:           1.5.1
+```
+
+The Docker environment uses overlayfs and systemd/cgroup v2.
+
+---
+
+# Compose Configuration
+
+The stack is managed from its Docker Compose configuration.
+
+Typical management commands are:
+
+```bash
+cd /opt/media-stack
+```
+
+Check service status:
+
+```bash
+docker compose ps
+```
+
+Start the stack:
+
+```bash
+docker compose up -d
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Restart a service:
+
+```bash
+docker compose restart <service>
+```
+
+View logs:
+
+```bash
+docker compose logs -f <service>
+```
+
+---
+
+# qBittorrent
+
+qBittorrent is the download client.
+
+```text
+Port:       8080
+Downloads:  /mnt/downloads
+PUID:       1000
+PGID:       1000
+Timezone:   Australia/Melbourne
+Config:     /opt/media-stack/config/qbittorrent
+```
+
+The download directory is:
+
+```text
+/mnt/downloads
+```
+
+with:
+
+```text
+/mnt/downloads/incomplete
+/mnt/downloads/complete
+```
+
+---
+
+# Prowlarr
+
+Prowlarr manages indexers for the media applications.
+
+```text
+Port: 9696
+```
+
+Prowlarr is connected to:
+
+* Radarr
+* Sonarr
+
+The current deployment has five configured indexers.
+
+Three of the configured indexers are synchronised to Radarr because two are not movie-capable.
+
+All configured indexers were verified as healthy during setup.
+
+---
+
+# FlareSolverr
+
+FlareSolverr is available internally to Prowlarr:
+
+```text
+http://flaresolverr:8191
+```
+
+The Prowlarr proxy configuration is:
+
+```text
+Name: FlareSolverr
+Tag:  flaresolverr
+Host: http://flaresolverr:8191
+```
+
+Only indexers requiring FlareSolverr should be assigned the corresponding tag.
+
+FlareSolverr is not intended to be used unnecessarily for indexers that work without it.
+
+---
+
+# Radarr
+
+Radarr manages movies.
+
+```text
+Port: 7878
+```
+
+Media root:
+
+```text
+/mnt/media/movies
+```
+
+Downloads are available through:
+
+```text
+/mnt/downloads
+```
+
+The configured download client is qBittorrent.
+
+Radarr is configured to:
+
+* Monitor released movies
+* Automatically search for requested/relevant releases
+* Scan the movie library
+* Import completed downloads
+* Organise movies under `/mnt/media/movies`
+
+---
+
+# Sonarr
+
+Sonarr manages television and anime.
+
+```text
+Port: 8989
+```
+
+Configured media roots:
+
+```text
+/mnt/media/tv
+/mnt/media/anime
+```
+
+Downloads are available through:
+
+```text
+/mnt/downloads
+```
+
+Sonarr is configured to:
+
+* Monitor released series
+* Automatically search for relevant releases
+* Scan configured libraries
+* Import completed downloads
+* Organise television and anime media
+
+---
+
+# Bazarr
+
+Bazarr manages subtitles.
+
+```text
+Port: 6767
+```
+
+Media access:
+
+```text
+/mnt/media
+```
+
+Bazarr works alongside Sonarr and Radarr to manage subtitles for the corresponding media libraries.
+
+---
+
+# Seerr
+
+Seerr provides the user-facing media request system.
+
+```text
+Port: 5055
+```
+
+Configuration:
+
+```text
+/opt/media-stack/config/seerr
+```
+
+The container runs using its own application configuration directory.
+
+An initial permissions issue involving:
+
+```text
+/app/config/logs
+```
+
+was resolved by correcting ownership of:
+
+```text
+/opt/media-stack/config/seerr
+```
+
+to:
+
+```text
+1000:1000
+```
+
+Seerr is currently running version:
+
+```text
+3.4.1
+```
+
+---
+
+# Seerr → Jellyfin
+
+Seerr is integrated with Jellyfin.
 
 Jellyfin:
 
-    192.168.20.98
-
-The media stack will ultimately provide media to Jellyfin through a shared media library.
-
-Current Jellyfin access:
-
-    jellyfin.robynshomelab.dev
-        |
-        v
-    CT106 Nginx
-    192.168.20.94
-        |
-        v
-    CT102 Jellyfin
-    192.168.20.98:8096
-
-The media automation stack does not replace Jellyfin.
-
-Instead, it manages the media that Jellyfin serves.
-
-## Storage
-
-Bulk media storage is planned for `pve-2`.
-
-A WD Blue 4 TB (`WD40EZRZ`) HDD is intended to be installed directly into the Dell OptiPlex 9020 SFF.
-
-The HDD has not yet been installed.
-
-The intended architecture is:
-
-    pve-2
-      |
-      +--> 4 TB HDD
-            |
-            +--> Host filesystem
-                  |
-                  +--> NFS
-                        |
-                        +--> Media stack
-                        |
-                        +--> Jellyfin
+```text
+192.168.20.98:8096
+```
 
-The 4 TB HDD will provide bulk media storage rather than VM operating-system storage.
+No SSL is used for this internal service-to-service connection.
 
-The Proxmox SSD remains responsible for VM and system storage.
+The integration allows Seerr to use Jellyfin's media library when processing requests.
 
-## NFS
+---
 
-The planned storage architecture uses a host-mounted filesystem on `pve-2`, exported over NFS.
+# Seerr → Radarr
 
-This avoids introducing a dedicated NAS operating system for the current homelab design.
+Radarr is configured in Seerr for movie requests.
 
-The current storage plan is therefore:
+The Radarr service is reached internally through the Docker network:
 
-    4 TB HDD
-        |
-        v
-    pve-2 filesystem
-        |
-        v
-    NFS export
-        |
-        +--> VM103 media stack
-        |
-        +--> Jellyfin
+```text
+radarr:7878
+```
 
-NFS has not yet been configured.
+Radarr uses:
 
-The final filesystem, mount paths, export paths, permissions, and network restrictions will be documented when the storage is deployed.
+```text
+/mnt/media/movies
+```
 
-## Media Workflow
+as its movie root.
 
-The intended workflow is:
+---
 
-    User
-      |
-      v
-    Seerr / Jellyseerr
-      |
-      +--> Movie request
-      |      |
-      |      v
-      |    Radarr
-      |
-      +--> TV request
-             |
-             v
-           Sonarr
-              |
-              v
-           Prowlarr
-              |
-              v
-         Indexers
-              |
-              v
-        qBittorrent
-              |
-              v
-        Media Storage
-              |
-              v
-         Sonarr/Radarr
-              |
-              v
-          Jellyfin
+# Seerr → Sonarr
 
-Bazarr will provide subtitle management where required.
+Sonarr is configured in Seerr for television requests.
 
-## Directory Structure
+The Sonarr service is reached internally through the Docker network:
 
-The final media directory structure has not yet been established.
+```text
+sonarr:8989
+```
 
-It should be designed before deploying the automation applications.
+Configured roots include:
 
-The structure should separate:
+```text
+/mnt/media/tv
+/mnt/media/anime
+```
 
-- Downloads
-- Movies
-- TV shows
-- Subtitles
-- Application configuration
-- Temporary/incomplete downloads
+---
 
-The final paths should be documented once the NFS storage is operational.
+# End-to-End Workflow
 
-## VM103
+A typical movie request follows this path:
 
-VMID:
+```text
+User
+ │
+ ▼
+Seerr
+ │
+ ▼
+Radarr
+ │
+ ▼
+Prowlarr
+ │
+ ▼
+Indexer
+ │
+ ▼
+qBittorrent
+ │
+ ▼
+/mnt/downloads/complete
+ │
+ ▼
+Radarr import
+ │
+ ▼
+/mnt/media/movies
+ │
+ ▼
+Jellyfin
+```
 
-    103
+The corresponding TV/anime path uses Sonarr.
 
-Status:
+---
 
-    Reserved
+# Verified Movie Workflow
 
-Purpose:
+The end-to-end movie workflow has been successfully tested.
 
-    Future media stack
+A test request for:
 
-The VM has not yet been deployed.
+```text
+Disclosure Day (2026)
+```
 
-The final VM resource allocation should be determined based on the workload and storage requirements rather than being assumed in advance.
+was successfully processed through the media stack.
 
-## Network Architecture
+The resulting file was:
 
-The planned media stack will operate on the existing LAN.
+```text
+/mnt/media/movies/Disclosure Day (2026)/Disclosure Day (2026) [1080p] [WEBRip] [5.1].mp4
+```
 
-LAN:
+The file size was approximately:
 
-    192.168.20.0/24
+```text
+2.7 GB
+```
 
-The media stack will eventually communicate with:
+This confirmed the following chain:
 
-- NFS storage on `pve-2`
-- Jellyfin on CT102
-- Download/indexer services
-- DNS through Pi-hole
-- Other required homelab services
+```text
+Seerr
+  ↓
+Radarr
+  ↓
+Prowlarr
+  ↓
+Indexer
+  ↓
+qBittorrent
+  ↓
+Download
+  ↓
+Radarr import
+  ↓
+Media library
+```
 
-The existing network is currently flat.
+---
 
-Future VLAN and firewall changes may require the media-stack network design to be updated.
+# Permissions
 
-## DNS and Reverse Proxy
+The NFS media and download shares on pve-2 use:
 
-If the media applications require web access, their hostnames should use the existing DNS and reverse-proxy architecture.
+```text
+UID: 999
+GID: 990
+```
 
-The intended pattern is:
+The corresponding `mediastack` account on pve-2 owns the shared media/download data.
 
-    Client
-      |
-      v
-    Pi-hole
-    192.168.20.99
-      |
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      v
-    Media application
+The directories are configured with group inheritance using mode:
 
-Individual hostnames will be added to Pi-hole and Nginx when the services are deployed.
+```text
+2775
+```
 
-No media-stack hostname should be documented as deployed until the corresponding service actually exists.
+This allows files created within the shared directories to retain the intended group.
 
-## NetBird
+---
 
-NetBird clients should be able to access media-management interfaces through the existing CT101 routing architecture once those services are deployed.
+# NFS Shares
 
-The existing route to CT106 is:
+pve-2 currently exports the media stack's required shares separately.
 
-    192.168.20.94/32
+Media:
 
-The intended path is:
+```text
+/mnt/homelab-data/media
+```
 
-    NetBird Client
-          |
-          v
-    CT101
-    192.168.20.97
-          |
-          v
-    CT106 Nginx
-    192.168.20.94
-          |
-          v
-    Media application
+Downloads:
 
-Additional routes should only be added when required.
+```text
+/mnt/homelab-data/downloads
+```
 
-## Security
+The exports use restricted client addresses rather than exposing the entire LAN unnecessarily.
 
-The media stack should remain private.
+The current architecture intentionally uses separate exports for separate purposes.
 
-Management interfaces should not be directly exposed to the public Internet.
+---
 
-Preferred access methods are:
+# Download and Import Paths
 
-- LAN
-- NetBird
+The download directory should remain separate from the final media library.
 
-Download and automation services should be isolated as much as practical.
+```text
+Downloads:
 
-Credentials for indexers, download services, APIs, and other applications must not be committed to GitHub.
+/mnt/downloads/
+├── incomplete/
+└── complete/
 
-## Monitoring
 
-The media stack should eventually be integrated with the existing monitoring infrastructure.
+Media:
 
-Potential monitoring:
+/mnt/media/
+├── anime/
+├── books/
+├── movies/
+├── music/
+└── tv/
+```
 
-- VM103 availability
-- Application availability
-- Storage usage
-- NFS availability
-- Download client availability
-- Media application health
+Completed downloads are imported into their appropriate media library rather than being treated as the permanent media location.
 
-Uptime Kuma can provide service availability monitoring.
+---
 
-Beszel can provide system/resource monitoring.
+# Service Dependencies
 
-## Backups
+The stack has several dependencies:
 
-The media stack will require a backup strategy for application configuration.
+```text
+NFS storage
+    │
+    ▼
+/mnt/media + /mnt/downloads
+    │
+    ├── qBittorrent
+    ├── Sonarr
+    ├── Radarr
+    └── Bazarr
 
-At minimum, backups should account for:
+Prowlarr
+    │
+    ├── Indexers
+    └── FlareSolverr
 
-- Sonarr configuration
-- Radarr configuration
-- Prowlarr configuration
-- Bazarr configuration
-- Seerr/Jellyseerr configuration
-- qBittorrent configuration
-- Application databases where applicable
+Seerr
+    │
+    ├── Radarr
+    ├── Sonarr
+    └── Jellyfin
+```
 
-The media files themselves may require a separate backup strategy due to their size.
+A failure of NFS storage can therefore affect multiple applications simultaneously.
 
-## Current State
+---
 
-The current state is:
+# Troubleshooting
 
-    Jellyfin
-    CT102
-    192.168.20.98
-        |
-        +--> Deployed
+## Check Containers
 
-    VM103
-        |
-        +--> Reserved
-        |
-        +--> Media stack not deployed
+```bash
+docker compose ps
+```
 
-    pve-2
-        |
-        +--> 4 TB HDD planned
-        |
-        +--> NFS not configured
+All expected services should show as running.
 
-The media automation stack remains a future project.
+---
 
-## Planned Deployment Order
+## Check Logs
 
-When the media stack is eventually implemented, the preferred order is:
+For a specific service:
 
-1. Install and verify the 4 TB HDD on `pve-2`.
-2. Create and verify the host filesystem.
-3. Configure NFS.
-4. Deploy VM103.
-5. Mount the NFS storage.
-6. Establish the media directory structure.
-7. Deploy qBittorrent.
-8. Deploy Prowlarr.
-9. Deploy Sonarr.
-10. Deploy Radarr.
-11. Deploy Bazarr.
-12. Deploy Seerr/Jellyseerr.
-13. Integrate the completed library with Jellyfin.
-14. Add Nginx and Pi-hole DNS entries where required.
-15. Add Uptime Kuma and Beszel monitoring.
-16. Document the final configuration.
+```bash
+docker compose logs -f <service>
+```
 
-The exact order may be adjusted if implementation requirements dictate otherwise.
+For example:
+
+```bash
+docker compose logs -f radarr
+```
+
+---
+
+## Check Storage
+
+```bash
+df -h /mnt/media
+df -h /mnt/downloads
+```
+
+Check mounts:
+
+```bash
+findmnt /mnt/media
+findmnt /mnt/downloads
+```
+
+---
+
+## Test Media Access
+
+```bash
+ls -lah /mnt/media
+ls -lah /mnt/downloads
+```
+
+If these fail, investigate the NFS/bind-mount chain before troubleshooting the Docker applications.
+
+---
+
+## Check Docker
+
+```bash
+docker info
+```
+
+Check containers:
+
+```bash
+docker ps
+```
+
+Check Compose configuration:
+
+```bash
+docker compose config
+```
+
+---
+
+# NFS Failure Considerations
+
+The media stack depends on:
+
+```text
+pve-2
+  ↓
+NFS
+  ↓
+pve-1
+  ↓
+LXC bind mount
+  ↓
+CT103
+```
+
+If NFS becomes unavailable, applications may report missing libraries, failed imports, or filesystem errors.
+
+Do not immediately recreate the Docker containers.
+
+First verify:
+
+```bash
+findmnt /mnt/media
+findmnt /mnt/downloads
+```
+
+and then verify the NFS mounts on pve-1.
+
+---
+
+# Operational Principles
+
+The current media stack follows these principles:
+
+* Runs on CT103
+* Uses Docker Compose
+* Uses NFS-backed storage
+* Keeps downloads separate from the final media library
+* Uses Prowlarr as the indexer manager
+* Uses qBittorrent as the download client
+* Uses Radarr for movies
+* Uses Sonarr for TV and anime
+* Uses Bazarr for subtitles
+* Uses Seerr for requests
+* Uses FlareSolverr only where required
+* Integrates with Jellyfin
+* Uses internal Docker service names where appropriate
+* Does not require router port forwarding
+
+---
+
+# Future Improvements
+
+Potential future work includes:
+
+* Automated Jellyfin library refresh
+* More comprehensive health monitoring
+* Backup of application configuration
+* Improved storage monitoring
+* Additional media quality profiles
+* Additional subtitle configuration
+* More detailed download/import automation
+* Integration with the existing monitoring stack
+
+Any future configuration should preserve the separation between:
+
+```text
+downloads
+media library
+application configuration
+```
+
+to keep the storage architecture predictable and recoverable.

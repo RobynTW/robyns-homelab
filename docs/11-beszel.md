@@ -1,296 +1,524 @@
 # Beszel
 
-## Overview
+Beszel is the homelab's lightweight monitoring system.
 
-Beszel provides lightweight system monitoring for the homelab.
+It runs on CT104 and provides monitoring and historical metrics for homelab infrastructure.
 
-Hostname:
+---
 
-    beszel
+# Container
 
-IP address:
+```text
+VMID:     104
+Hostname: beszel
+IP:       192.168.20.96
+Host:     pve-1
+```
 
-    192.168.20.96
+Beszel is accessed through Nginx using:
 
-VMID:
+```text
+https://beszel.robynshomelab.dev
+```
 
-    CT104
+---
 
-Beszel is deployed as an LXC container on `pve-1`.
+# Architecture
 
-## Role
+```text
+                         Beszel
+                    192.168.20.96
+                           │
+             ┌─────────────┼─────────────┐
+             │             │             │
+             ▼             ▼             ▼
+          Proxmox       Containers      VMs
+          Hosts         / Services    / Services
+```
 
-Beszel provides monitoring and resource visibility for homelab systems.
+Beszel uses a central hub/monitoring service with agents providing host-level metrics.
 
-It is intended to provide visibility into:
+---
 
-- CPU usage
-- Memory usage
-- Disk usage
-- Network activity
-- System health
-- Resource trends
+# Purpose
 
-Additional monitored systems can be added as the homelab expands.
+Beszel is intended to provide lightweight infrastructure monitoring without requiring a large monitoring stack.
 
-## Network
+Useful metrics include:
 
-LAN:
+* CPU usage
+* Memory usage
+* Disk usage
+* Network activity
+* System load
+* Host availability
+* Historical resource utilisation
 
-    192.168.20.0/24
+---
 
-Beszel:
+# Current Deployment
 
-    192.168.20.96
+The Beszel service is hosted on CT104:
 
-Reverse proxy:
+```text
+192.168.20.96
+```
 
-    192.168.20.94
+The web interface is reverse-proxied through CT106:
 
-The Beszel service is accessed through the central Nginx reverse proxy.
+```text
+Client
+  │
+  ▼
+Pi-hole
+  │
+  ▼
+192.168.20.94
+  │
+  ▼
+Nginx
+  │
+  ▼
+192.168.20.96:8090
+  │
+  ▼
+Beszel
+```
 
-## Reverse Proxy
+The internal backend is:
 
-Beszel is accessed through:
+```text
+192.168.20.96:8090
+```
 
-    beszel.robynshomelab.dev
+---
+
+# DNS
 
 Pi-hole provides the internal DNS record:
 
-    beszel.robynshomelab.dev -> 192.168.20.94
+```text
+beszel.robynshomelab.dev
+```
 
-The traffic path is:
+which resolves to:
 
-    Client
-      |
-      | HTTPS
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      | HTTP
-      v
-    CT104 Beszel
-    192.168.20.96:8090
+```text
+192.168.20.94
+```
 
-Nginx provides TLS termination.
+Nginx then proxies the request to Beszel.
 
-Beszel's backend does not need to manage the public certificate.
+This means users do not need to access the Beszel backend port directly.
 
-## DNS
+---
 
-Pi-hole provides split DNS for the Beszel hostname.
+# HTTPS
 
-Internal resolution:
+Nginx provides HTTPS for the Beszel interface:
 
-    beszel.robynshomelab.dev
-        |
-        v
-    192.168.20.94
+```text
+https://beszel.robynshomelab.dev
+```
 
-The DNS path is:
+The TLS certificate is managed by Certbot on CT106 using Let's Encrypt DNS-01 validation through Cloudflare.
 
-    Client
-      |
-      v
-    Pi-hole
-    192.168.20.99
-      |
-      v
-    CT106 Nginx
-    192.168.20.94
+The certificate currently expires:
 
-## NetBird Access
+```text
+2026-12-04
+```
 
-NetBird clients can access Beszel through CT101's existing route to CT106.
+---
 
-The path is:
+# NetBird Access
 
-    NetBird Client
-          |
-          v
-    CT101
-    192.168.20.97
-          |
-          | 192.168.20.94/32
-          v
-    CT106 Nginx
-    192.168.20.94
-          |
-          v
-    CT104 Beszel
-    192.168.20.96
+Remote access uses NetBird.
 
-No direct NetBird route to CT104 is currently required.
+CT101 advertises:
 
-## Monitoring Architecture
+```text
+192.168.20.94/32
+```
 
-Beszel is part of the homelab's monitoring layer.
+to NetBird clients.
 
-Current monitoring-related services include:
+The remote access path is therefore:
 
-    CT104
-    192.168.20.96
-        |
-        +--> Beszel
+```text
+Remote NetBird client
+        │
+        ▼
+CT101
+192.168.20.97
+        │
+        ▼
+192.168.20.94
+        │
+        ▼
+Nginx
+        │
+        ▼
+192.168.20.96:8090
+        │
+        ▼
+Beszel
+```
 
-    CT105
-    192.168.20.95
-        |
-        +--> Uptime Kuma
+Pi-hole also provides DNS to NetBird clients, allowing the normal hostname to be used remotely.
 
-These services have different roles.
+---
 
-Beszel focuses primarily on system/resource monitoring.
+# Monitoring Architecture
 
-Uptime Kuma focuses primarily on service availability and uptime monitoring.
+Beszel is intended to monitor the important infrastructure components of the homelab.
 
-## Pterodactyl Monitoring
+The broader monitoring architecture is:
 
-Pterodactyl VM108 is not yet fully integrated into the homelab monitoring architecture.
+```text
+                     Monitoring
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+        Beszel                     Uptime Kuma
+          │                             │
+   System metrics                  Availability
+          │                             │
+          └──────────────┬──────────────┘
+                         │
+                    Homelab hosts
+```
+
+Beszel focuses primarily on system/resource metrics.
+
+Uptime Kuma focuses primarily on service availability and uptime.
+
+---
+
+# Host Monitoring
+
+Potential monitoring targets include:
+
+```text
+pve-1
+pve-2
+CT100 Pi-hole
+CT101 NetBird
+CT102 Jellyfin
+CT103 Media Stack
+CT104 Beszel
+CT105 Uptime Kuma
+CT106 Nginx
+VM108 Pterodactyl
+```
+
+The exact set of active Beszel agents should be treated as the deployed configuration rather than assuming every host above is currently monitored.
+
+---
+
+# Pterodactyl Monitoring
+
+VM108 is part of the homelab infrastructure but its Beszel monitoring is not yet considered fully configured.
 
 Future monitoring should cover:
 
-- VM108 resource usage
-- Docker
-- Wings
-- Game-server resource consumption
-- Game-server availability
-- Storage usage
+```text
+VM108
+├── CPU
+├── Memory
+├── Disk
+├── Network
+├── Docker
+└── Wings / game-server workload
+```
 
-Monitoring requirements should be reviewed after Wings and the first game server are deployed.
+This is particularly useful because Pterodactyl can generate significantly different resource usage from the other homelab services.
 
-## Storage Monitoring
+---
 
-As the 4 TB HDD on `pve-2` is not yet installed, its long-term monitoring requirements have not yet been implemented.
+# Storage Monitoring
 
-Once deployed, monitoring should include:
+Storage monitoring is particularly important because the homelab uses a single 4TB HDD as its primary shared media/data storage.
 
-- Disk capacity
-- Filesystem usage
-- Disk health where practical
-- NFS availability
-- Media storage consumption
+The drive is located in pve-2.
 
-## Security
+```text
+pve-2
+  │
+  ▼
+4TB WD Blue
+  │
+  ├── media
+  ├── downloads
+  ├── games
+  ├── backups
+  └── shared
+```
 
-Beszel should remain a private management service.
+Monitoring should eventually include:
 
-Access should be restricted to:
+* Filesystem utilisation
+* Disk health
+* SMART status
+* Available capacity
+* I/O activity
 
-- LAN
-- NetBird
+Beszel provides general system metrics, while SMART health checks may require additional tooling.
 
-The backend service should not be directly exposed through router port forwarding.
+---
 
-The reverse proxy provides the preferred HTTPS access path.
+# Monitoring Philosophy
 
-## Verification
+The homelab uses two complementary monitoring systems.
 
-### Check container
+## Beszel
+
+Best suited to:
+
+* CPU
+* RAM
+* Disk usage
+* Network usage
+* System resource trends
+
+## Uptime Kuma
+
+Best suited to:
+
+* HTTP availability
+* TCP availability
+* Service uptime
+* Endpoint monitoring
+* Availability alerts
+
+Together:
+
+```text
+Resource health
+      │
+      ▼
+    Beszel
+
+Service availability
+      │
+      ▼
+ Uptime Kuma
+```
+
+---
+
+# Access
+
+The preferred web address is:
+
+```text
+https://beszel.robynshomelab.dev
+```
+
+The backend should normally be accessed through Nginx rather than directly using:
+
+```text
+http://192.168.20.96:8090
+```
+
+Direct backend access remains useful for troubleshooting.
+
+---
+
+# Troubleshooting
+
+## Check CT104
 
 From Proxmox:
 
-    pct status 104
+```bash
+pct status 104
+```
 
-### Check Beszel service
+The container should be running.
 
-The exact service name depends on the installed Beszel component.
+---
 
-Check the container's running services as required.
+## Check Listening Port
 
-### Test backend connectivity
+Inside CT104:
 
-From CT106:
+```bash
+ss -lntp | grep 8090
+```
 
-    curl -I http://192.168.20.96:8090
+The Beszel service should be listening on its configured port.
 
-A successful response confirms that Nginx can reach Beszel.
+---
 
-### Test DNS
-
-From an internal client:
-
-    dig @192.168.20.99 beszel.robynshomelab.dev
-
-Expected result:
-
-    192.168.20.94
-
-### Test HTTPS
-
-From an internal client:
-
-    curl -I https://beszel.robynshomelab.dev
-
-The request should terminate TLS on CT106.
-
-## Troubleshooting
-
-### Beszel is unreachable
-
-Check the container:
-
-    pct status 104
-
-Then investigate the Beszel service inside CT104.
-
-### Beszel works directly but not through the hostname
-
-Check DNS:
-
-    dig @192.168.20.99 beszel.robynshomelab.dev
-
-Expected:
-
-    192.168.20.94
-
-If DNS is correct, investigate CT106 Nginx.
-
-### Nginx cannot reach Beszel
+## Test Backend
 
 From CT106:
 
-    curl -I http://192.168.20.96:8090
+```bash
+curl -I http://192.168.20.96:8090
+```
 
-If this fails, investigate:
+If this succeeds but the HTTPS hostname fails, investigate Nginx or DNS.
 
-- CT104 networking
-- Beszel service status
-- Container firewall configuration
-- Listening address
-- Port configuration
+---
 
-### NetBird client cannot access Beszel
+## Test DNS
 
-Verify:
+From a LAN client:
 
-1. NetBird is connected.
-2. CT101 is routing `192.168.20.94/32`.
-3. `beszel.robynshomelab.dev` resolves to `192.168.20.94`.
-4. CT106 Nginx is running.
-5. CT106 can reach CT104.
+```bash
+dig @192.168.20.99 beszel.robynshomelab.dev
+```
 
-## Current State
+Expected internal result:
 
-Beszel is deployed on CT104.
+```text
+192.168.20.94
+```
 
-Current access path:
+---
 
-    Client
-      |
-      v
-    Pi-hole
-    192.168.20.99
-      |
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      v
-    CT104 Beszel
-    192.168.20.96:8090
+## Test HTTPS
 
-Beszel is part of the current monitoring infrastructure.
+```bash
+curl -I https://beszel.robynshomelab.dev
+```
 
-Additional Pterodactyl and storage monitoring will be configured as those components are deployed.
+If the hostname resolves correctly but HTTPS fails, check:
+
+```text
+Pi-hole
+   ↓
+Nginx
+   ↓
+Certbot certificate
+   ↓
+Beszel backend
+```
+
+---
+
+# Nginx Troubleshooting
+
+On CT106:
+
+```bash
+nginx -t
+```
+
+Then check:
+
+```bash
+systemctl status nginx
+```
+
+Review logs if necessary:
+
+```bash
+journalctl -u nginx
+```
+
+or:
+
+```bash
+ls -lah /var/log/nginx/
+```
+
+---
+
+# NetBird Troubleshooting
+
+From a NetBird client, verify that Nginx is reachable:
+
+```bash
+ping 192.168.20.94
+```
+
+Then test the Beszel hostname:
+
+```bash
+curl -I https://beszel.robynshomelab.dev
+```
+
+If Nginx is reachable but the Beszel service is not, troubleshoot CT104 and the Nginx backend connection.
+
+---
+
+# Operational Separation
+
+Beszel should not be confused with Uptime Kuma.
+
+```text
+Beszel
+└── "How is the machine performing?"
+
+Uptime Kuma
+└── "Is the service reachable?"
+```
+
+For example, a server could be:
+
+```text
+Beszel → high CPU usage
+Uptime Kuma → service still online
+```
+
+Both pieces of information are useful.
+
+---
+
+# Security
+
+Beszel is not directly exposed through router port forwarding.
+
+The current access model is:
+
+```text
+LAN
+ │
+ ▼
+Pi-hole
+ │
+ ▼
+Nginx
+ │
+ ▼
+Beszel
+```
+
+and remotely:
+
+```text
+NetBird
+ │
+ ▼
+CT101
+ │
+ ▼
+Nginx
+ │
+ ▼
+Beszel
+```
+
+The Beszel backend port should remain internal.
+
+---
+
+# Future Improvements
+
+Potential future improvements include:
+
+* Complete monitoring coverage of all Proxmox hosts
+* Add VM108/Pterodactyl monitoring
+* Monitor NFS storage
+* Monitor SMART health
+* Monitor Docker resource usage
+* Add disk-capacity alerts
+* Add CPU/memory alerts
+* Configure notification channels
+* Improve monitoring of NetBird and network infrastructure
+* Add monitoring for backup jobs
+
+Monitoring configuration should be updated here as additional hosts and services are deployed.

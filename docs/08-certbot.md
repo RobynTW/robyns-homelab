@@ -1,349 +1,430 @@
 # Certbot
 
-## Overview
-
 Certbot manages the Let's Encrypt TLS certificates used by the homelab's Nginx reverse proxy.
 
-Certbot runs on CT106 alongside Nginx.
+It runs on CT106 alongside Nginx and uses the Cloudflare DNS API for DNS-01 certificate validation.
 
-Hostname:
+---
 
-    nginx
+# Container
 
-IP address:
+```text
+VMID:     106
+Hostname: nginx
+IP:       192.168.20.94
+Host:     pve-1
+```
 
-    192.168.20.94
+CT106 runs:
 
-VMID:
+* Nginx
+* Certbot
 
-    CT106
+---
 
-## Role
+# Role
 
 Certbot is responsible for:
 
-- Obtaining Let's Encrypt certificates
-- Renewing certificates
-- Performing DNS-01 validation through Cloudflare
-- Providing certificates for Nginx
+* Requesting Let's Encrypt certificates
+* Performing DNS-01 validation through Cloudflare
+* Installing certificates for Nginx
+* Renewing certificates automatically
+* Providing certificate status information
 
-Nginx uses the resulting certificates to provide HTTPS access to internal services.
+The certificate architecture is:
 
-## Architecture
+```text
+                     Cloudflare
+                         │
+                         │ DNS-01
+                         ▼
+                    Let's Encrypt
+                         │
+                         │ certificate
+                         ▼
+                      Certbot
+                    CT106 .94
+                         │
+                         ▼
+                       Nginx
+                         │
+                         ▼
+                  Internal services
+```
 
-The current certificate architecture is:
+---
 
-    CT106
-    192.168.20.94
-        |
-        +--> Nginx
-        |
-        +--> Certbot
-              |
-              | Cloudflare API
-              v
-          Cloudflare DNS
-              |
-              | DNS-01 TXT record
-              v
-          Let's Encrypt
+# DNS-01 Validation
 
-Cloudflare is used for DNS validation only.
+The homelab uses the DNS-01 ACME challenge rather than HTTP-01.
 
-It is not used as an HTTP/HTTPS reverse proxy.
-
-## DNS-01
-
-Certificates are validated using the DNS-01 challenge.
+This means Let's Encrypt validates domain ownership by checking a temporary DNS record.
 
 The process is:
 
-    Certbot
-       |
-       | Request certificate
-       v
-    Let's Encrypt
-       |
-       | DNS-01 challenge
-       v
-    Cloudflare DNS
-       |
-       | TXT record
-       v
-    Let's Encrypt
-       |
-       | Validation successful
-       v
-    Certificate issued
-       |
-       v
-    CT106
-       |
-       v
-    Nginx
+```text
+Certbot
+   │
+   │ ACME request
+   ▼
+Let's Encrypt
+   │
+   │ requests DNS challenge
+   ▼
+Certbot
+   │
+   │ Cloudflare API
+   ▼
+Cloudflare DNS
+   │
+   │ _acme-challenge record
+   ▼
+Let's Encrypt
+   │
+   │ validation succeeds
+   ▼
+Certificate issued
+```
 
-DNS-01 is useful for this homelab because certificate validation does not require the internal services themselves to be publicly accessible.
+This avoids requiring an Internet-accessible HTTP challenge endpoint.
 
-## Cloudflare Credential
+---
 
-Certbot uses a dedicated Cloudflare API credential for DNS-01 authentication.
+# Cloudflare Integration
 
-The credential is stored locally on CT106 at:
+Cloudflare is authoritative for:
 
-    /root/.secrets/certbot/cloudflare.ini
+```text
+robynshomelab.dev
+```
 
-The file is root-owned and restricted to mode `600`.
+Certbot uses the Cloudflare API to create the DNS records required for ACME validation.
 
-The actual API token is intentionally not documented.
+Cloudflare is **not** acting as an HTTP reverse proxy.
 
-The ACME credential is separate from the Cloudflare credential used by ddclient.
+The homelab's DNS records remain DNS-only.
 
-## Certificate Domains
+---
 
-Current certificates managed by CT106 include:
+# Current Certificates
 
-    jellyfin.robynshomelab.dev
-    status.robynshomelab.dev
-    beszel.robynshomelab.dev
-    pihole.robynshomelab.dev
+The current certificates managed by Certbot are:
 
-The Pterodactyl Panel uses:
+| Certificate                  | Service           | Expiry     |
+| ---------------------------- | ----------------- | ---------- |
+| `jellyfin.robynshomelab.dev` | Jellyfin          | 2026-12-04 |
+| `status.robynshomelab.dev`   | Uptime Kuma       | 2026-12-04 |
+| `beszel.robynshomelab.dev`   | Beszel            | 2026-12-04 |
+| `pihole.robynshomelab.dev`   | Pi-hole           | 2026-12-04 |
+| `panel.robynshomelab.dev`    | Pterodactyl Panel | 2026-12-08 |
 
-    panel.robynshomelab.dev
+These certificates are terminated by Nginx on:
 
-The Panel certificate is managed through the same Cloudflare DNS-01 architecture.
+```text
+192.168.20.94:443
+```
 
-## Pterodactyl Panel
+---
 
-The Panel is hosted on VM108:
+# Certificate Storage
 
-    192.168.20.111
+Certbot stores certificates under:
 
-The client-facing hostname is:
+```text
+/etc/letsencrypt/
+```
 
-    panel.robynshomelab.dev
+Important directories include:
 
-The certificate is terminated by Nginx on CT106.
+```text
+/etc/letsencrypt/live/
+/etc/letsencrypt/archive/
+/etc/letsencrypt/renewal/
+```
 
-The traffic path is:
+The `live/` directory contains the active certificate paths used by services.
 
-    Client
-      |
-      | HTTPS
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      | HTTP
-      v
-    VM108
-    192.168.20.111
-      |
-      v
-    Pterodactyl Panel
+Certificate private keys must never be committed to Git or included in public documentation.
 
-The Panel does not need its own public-facing TLS service.
+---
 
-## Certificate Storage
+# Renewal
 
-Let's Encrypt certificates and keys are stored on CT106 under the standard Certbot directories.
+Certbot's automated renewal mechanism is enabled.
 
-Typical locations include:
+The system should periodically check whether certificates are approaching expiry and renew them when necessary.
 
-    /etc/letsencrypt/live/
-    /etc/letsencrypt/archive/
-    /etc/letsencrypt/renewal/
+Check the relevant systemd timers with:
 
-Private keys in these directories must never be committed to GitHub.
+```bash
+systemctl list-timers | grep certbot
+```
 
-## Renewal
+The timer status can also be checked with:
 
-Certbot uses its systemd timer for automated renewal.
+```bash
+systemctl status certbot.timer
+```
 
-Check the timer with:
+---
 
-    systemctl status certbot.timer
+# Renewal Testing
 
-List certificates with:
+A renewal dry-run has successfully completed on the current system.
 
-    certbot certificates
+To perform another dry-run:
 
-Certbot normally attempts renewal when certificates are sufficiently close to expiry.
+```bash
+certbot renew --dry-run
+```
 
-Successful renewal updates the certificate files used by Nginx.
+A successful dry-run confirms that the renewal process can complete without actually replacing the production certificates.
 
-## Renewal Testing
+---
 
-A dry-run can be used to verify that the renewal process works without requesting a real certificate.
+# Certificate Status
 
-On CT106:
+List currently managed certificates:
 
-    certbot renew --dry-run
+```bash
+certbot certificates
+```
 
-A successful dry-run indicates that the renewal configuration and ACME authentication are functioning correctly.
+This displays:
 
-A dry-run should be preferred when testing changes to the renewal configuration.
+* Certificate names
+* Domains
+* Certificate paths
+* Private-key paths
+* Expiry dates
 
-## Nginx Integration
+---
 
-After certificates are issued, Nginx references the certificate files under:
+# Nginx Integration
 
-    /etc/letsencrypt/live/
+Nginx uses the certificates managed by Certbot.
 
-Nginx provides the client-facing HTTPS connection.
+The general configuration is:
 
-When certificate files are renewed, Nginx may need to reload so that the running process uses the updated certificate.
+```text
+Client
+  │
+  │ HTTPS :443
+  ▼
+Nginx
+  │
+  ├── Let's Encrypt certificate
+  │
+  └── TLS termination
+       │
+       ▼
+Internal HTTP backend
+```
 
-A configuration test should be performed before reloading:
+The backend services do not need to independently manage publicly trusted certificates.
 
-    nginx -t
+---
 
-If successful:
+# Current Service Certificates
 
-    systemctl reload nginx
+The certificates correspond to the following Nginx virtual hosts:
 
-## Verification
+```text
+jellyfin.robynshomelab.dev
+status.robynshomelab.dev
+beszel.robynshomelab.dev
+pihole.robynshomelab.dev
+panel.robynshomelab.dev
+```
 
-### Check Certbot
+The corresponding backend services are:
 
-On CT106:
+| Hostname                     | Backend              |
+| ---------------------------- | -------------------- |
+| `jellyfin.robynshomelab.dev` | `192.168.20.98:8096` |
+| `status.robynshomelab.dev`   | `192.168.20.95:3001` |
+| `beszel.robynshomelab.dev`   | `192.168.20.96:8090` |
+| `pihole.robynshomelab.dev`   | `192.168.20.99:8080` |
+| `panel.robynshomelab.dev`    | `192.168.20.111:80`  |
 
-    certbot --version
+---
 
-### List certificates
+# No Port Forwarding Requirement
 
-    certbot certificates
+The current certificate architecture does not require router port forwarding.
 
-### Check renewal timer
+DNS-01 validation occurs through Cloudflare's DNS infrastructure rather than by connecting to the homelab over HTTP.
 
-    systemctl status certbot.timer
+```text
+Let's Encrypt
+      │
+      ▼
+Cloudflare DNS
+      │
+      ▼
+ACME DNS-01
+```
 
-### Test renewal
+The homelab does not need to expose port 80 for certificate validation.
 
-    certbot renew --dry-run
+---
 
-### Check Nginx configuration
+# Security
 
-    nginx -t
+Cloudflare credentials used by Certbot are sensitive.
 
-### Check HTTPS
+They should:
 
-From an internal client:
+* Never be committed to Git
+* Never be placed in documentation
+* Use the minimum required Cloudflare permissions
+* Be stored in protected configuration files
+* Be rotated if exposed
 
-    curl -I https://panel.robynshomelab.dev
+The actual API token or credentials are intentionally omitted from this document.
 
-The connection should use the certificate issued for the Panel hostname.
+---
 
-## Troubleshooting
+# Troubleshooting
 
-### Certificate issuance fails
+## Check Certbot
 
-Check:
+```bash
+certbot --version
+```
 
-1. Cloudflare DNS configuration.
-2. Cloudflare API credential permissions.
-3. Credential file permissions.
-4. DNS propagation.
-5. Certbot logs.
-6. Domain spelling.
-7. Nginx configuration.
+---
 
-Check the credential file permissions:
+## List Certificates
 
-    stat /root/.secrets/certbot/cloudflare.ini
+```bash
+certbot certificates
+```
 
-The file should be accessible only by root.
+---
 
-### DNS-01 challenge fails
+## Check Renewal Timer
 
-Verify that the Cloudflare API credential used by Certbot is valid and has the required permissions.
+```bash
+systemctl status certbot.timer
+```
 
-Do not replace the ACME credential with the ddclient credential unless the architecture is deliberately changed.
+---
 
-### Nginx does not use a renewed certificate
+## Test Renewal
 
-First verify that the certificate itself has renewed:
+```bash
+certbot renew --dry-run
+```
 
-    certbot certificates
+---
 
-Then test Nginx:
+## Check Renewal Logs
 
-    nginx -t
+```bash
+journalctl -u certbot
+```
 
-If the configuration is valid, reload Nginx:
+Depending on the installation, Certbot logs are also available under:
 
-    systemctl reload nginx
+```text
+/var/log/letsencrypt/
+```
 
-### HTTPS hostname does not resolve internally
+---
 
-Check Pi-hole:
+# If Renewal Fails
 
-    dig @192.168.20.99 panel.robynshomelab.dev
+Check the following in order:
 
-The expected internal result is:
+1. Confirm CT106 has Internet access.
+2. Confirm Cloudflare DNS is functioning.
+3. Confirm the Cloudflare API credentials remain valid.
+4. Confirm the credentials have sufficient DNS permissions.
+5. Run:
 
-    192.168.20.94
+   ```bash
+   certbot renew --dry-run
+   ```
+6. Inspect:
 
-This is a DNS issue rather than a Certbot issue.
+   ```bash
+   /var/log/letsencrypt/
+   ```
+7. Check the Nginx configuration.
+8. Reload Nginx after a successful certificate renewal if required.
 
-## Security
+---
 
-The following must never be committed to GitHub:
+# Certificate Verification
 
-- Cloudflare API tokens
-- Let's Encrypt private keys
-- Certificate files
-- Certbot credentials
-- Nginx private keys
-- Passwords
-- Other authentication secrets
+A certificate can be checked locally with:
 
-Only document credential locations and their purpose.
+```bash
+openssl s_client \
+  -connect 192.168.20.94:443 \
+  -servername panel.robynshomelab.dev
+```
 
-## Historical Architecture
+For a hostname-based test from a client:
 
-Certbot was previously associated with CT100 when Nginx was hosted there.
+```bash
+curl -I https://panel.robynshomelab.dev
+```
 
-That architecture is no longer current.
+The hostname should resolve through Pi-hole to:
 
-Current architecture:
+```text
+192.168.20.94
+```
 
-    CT100
-      |
-      +--> Pi-hole
-      +--> Unbound
-      +--> ddclient
+---
 
-    CT106
-      |
-      +--> Nginx
-      +--> Certbot
+# Relationship With Other Services
 
-Certbot configuration and certificate management should remain on CT106 unless the reverse-proxy architecture is deliberately changed.
+Certbot sits between Cloudflare DNS and Nginx:
 
-## Current State
+```text
+Cloudflare
+├── Authoritative DNS
+├── DDNS
+└── DNS-01 validation
+          │
+          ▼
+       Certbot
+          │
+          ▼
+        Nginx
+          │
+          ▼
+ Internal services
+```
 
-Certbot is deployed on CT106.
+The responsibilities are intentionally separated:
 
-Current certificate architecture:
+| Component     | Responsibility                    |
+| ------------- | --------------------------------- |
+| Cloudflare    | Authoritative DNS and DNS API     |
+| Let's Encrypt | Certificate authority             |
+| Certbot       | ACME client and renewal           |
+| Nginx         | TLS termination and reverse proxy |
+| Pi-hole       | Internal DNS/split DNS            |
 
-    Client
-       |
-       | HTTPS
-       v
-    CT106 Nginx
-       |
-       | certificate
-       v
-    Let's Encrypt certificate
-       ^
-       |
-    Certbot
-       |
-       | DNS-01
-       v
-    Cloudflare
+---
 
-Cloudflare provides DNS validation while CT106 remains responsible for TLS termination.
+# Operational Principles
 
-The Pterodactyl Panel uses the same architecture as the other reverse-proxied services.
+The current certificate setup follows these principles:
+
+* Use Let's Encrypt certificates
+* Use DNS-01 validation
+* Use Cloudflare for DNS validation
+* Keep Cloudflare records DNS-only
+* Terminate TLS at Nginx
+* Automatically renew certificates
+* Test renewal with dry-runs
+* Keep API credentials and private keys out of Git
+* Do not expose port 80 solely for ACME validation
+
+Any new HTTPS service added behind Nginx should be added to this document after its certificate has been successfully issued and tested.

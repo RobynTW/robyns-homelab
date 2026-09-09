@@ -1,362 +1,596 @@
-# Homelab Overview
+# Robyn's Homelab
 
-## Project
+## Overview
 
-This repository documents Robyn's personal homelab infrastructure.
+This repository contains the documentation, configuration, diagrams, and supporting scripts for my personal homelab.
 
-The homelab is built around two Proxmox hosts running in a single cluster, with dedicated containers and virtual machines for individual services.
+The purpose of this homelab is not only to provide useful services, but also to serve as a practical learning environment. The documentation therefore explains both **what has been configured** and **why it has been configured that way**.
 
-Primary domain:
+The infrastructure is developed incrementally, with each major stage documented and version-controlled using Git.
 
-robynshomelab.dev
+---
 
-Repository:
+## Current Architecture
 
-https://github.com/RobynTW/robyns-homelab
+The homelab currently consists of two physical Proxmox systems forming a two-node cluster:
 
-## Current Status
+| Host    | Hardware               | IP               | Role                                      |
+| ------- | ---------------------- | ---------------- | ----------------------------------------- |
+| `pve-1` | Dell OptiPlex 3060     | `192.168.20.100` | Primary Proxmox host                      |
+| `pve-2` | Dell OptiPlex 9020 SFF | `192.168.20.101` | Secondary Proxmox host and storage server |
 
-### Deployed
+The Proxmox cluster is named:
 
-- Two-node Proxmox cluster (`homelab`)
-- Pi-hole + Unbound DNS
-- Cloudflare authoritative DNS
-- Cloudflare DDNS
-- NetBird VPN/routing
-- Nginx reverse proxy
-- Let's Encrypt certificates via Certbot DNS-01
-- Jellyfin
-- Beszel monitoring
-- Uptime Kuma monitoring
-- Pterodactyl Panel
-- Debian VM dedicated to Pterodactyl
+```text
+homelab
+```
 
-### In Progress
+High Availability (HA) is currently disabled.
 
-- Pterodactyl HTTPS access
-- Pterodactyl Wings
-- Pterodactyl node configuration
-- 4 TB HDD storage on `pve-2`
-- NFS/fileshare infrastructure
+The network remains a relatively simple LAN:
 
-### Planned
+```text
+Network: 192.168.20.0/24
+Gateway: 192.168.20.1
+```
 
-- Pterodactyl game servers
-- NetBird integration for game-server networking
-- Media automation stack
-- Homarr dashboard
-- Managed network switch
-- Network segmentation/VLANs
-- pfSense/router improvements
-- Expanded monitoring and backup infrastructure
+There is currently **no router port forwarding** for homelab services. Remote access is provided through NetBird.
 
-## Physical Infrastructure
+Future network improvements may include managed switching, VLAN segmentation, and a dedicated firewall/router.
 
-### `pve-1`
+---
 
-- Dell OptiPlex 3060
-- Proxmox VE
-- IP: `192.168.20.100`
-- Primary host for core infrastructure containers
+## Proxmox
 
-### `pve-2`
+The homelab currently uses two Proxmox hosts.
 
-- Dell OptiPlex 9020 SFF
-- Intel i7-4770
-- 16 GB RAM
-- Proxmox VE
-- IP: `192.168.20.101`
-- Hosts the Pterodactyl VM
-- Intended to provide future bulk storage
+### pve-1
 
-## Proxmox Cluster
+```text
+Hostname: pve-1
+IP:       192.168.20.100
+```
 
-Cluster name:
+Current guests:
 
-`homelab`
+| VMID | Hostname      | Purpose                         | IP              |
+| ---: | ------------- | ------------------------------- | --------------- |
+|  100 | `pihole`      | Pi-hole, Unbound and DDNS       | `192.168.20.99` |
+|  101 | `netbird`     | NetBird routing peer            | `192.168.20.97` |
+|  102 | `jellyfin`    | Jellyfin media server           | `192.168.20.98` |
+|  103 | `mediastack`  | Media automation stack          | `192.168.20.93` |
+|  104 | `beszel`      | System monitoring               | `192.168.20.96` |
+|  105 | `uptime-kuma` | Service monitoring              | `192.168.20.95` |
+|  106 | `nginx`       | Nginx reverse proxy and Certbot | `192.168.20.94` |
+|  107 | —             | Reserved for Homarr             | —               |
 
-The two physical hosts are members of the same Proxmox cluster.
+### pve-2
 
-| Node | IP | Status |
-|---|---|---|
-| `pve-1` | `192.168.20.100` | Deployed |
-| `pve-2` | `192.168.20.101` | Deployed |
+```text
+Hostname: pve-2
+IP:       192.168.20.101
+```
 
-High availability is deliberately disabled.
+Current guest:
 
-The cluster currently requires both nodes for quorum.
+| VMID | Hostname      | Purpose                     | IP               |
+| ---: | ------------- | --------------------------- | ---------------- |
+|  108 | `pterodactyl` | Pterodactyl Panel and Wings | `192.168.20.111` |
 
-## Network
+pve-2 also provides the homelab's primary bulk storage and NFS services.
 
-LAN:
-
-`192.168.20.0/24`
-
-Router:
-
-`192.168.20.1`
-
-The current network is intentionally simple and flat. Both Proxmox hosts connect directly to the existing network infrastructure.
-
-A managed switch, VLANs, and more advanced firewall/routing are planned for a later stage.
-
-## Core Services
-
-| VM/CT | Hostname | IP | Service |
-|---|---|---|---|
-| CT100 | `pihole` | `192.168.20.99` | Pi-hole, Unbound, DDNS |
-| CT101 | `netbird` | `192.168.20.97` | NetBird routing peer |
-| CT102 | `jellyfin` | `192.168.20.98` | Jellyfin |
-| CT104 | `beszel` | `192.168.20.96` | Beszel |
-| CT105 | `uptime-kuma` | `192.168.20.95` | Uptime Kuma |
-| CT106 | `nginx` | `192.168.20.94` | Nginx + Certbot |
-| VM108 | `pterodactyl` | `192.168.20.111` | Pterodactyl Panel |
-
-Reserved VMIDs:
-
-- VM103 — future media stack
-- VM107 — future Homarr
-
-## DNS Architecture
-
-Pi-hole provides local DNS filtering and internal DNS overrides.
-
-Unbound runs locally on CT100 and provides recursive DNS resolution for Pi-hole.
-
-Internal service names resolve to the Nginx reverse proxy:
-
-- `jellyfin.robynshomelab.dev` → `192.168.20.94`
-- `status.robynshomelab.dev` → `192.168.20.94`
-- `beszel.robynshomelab.dev` → `192.168.20.94`
-- `pihole.robynshomelab.dev` → `192.168.20.94`
-- `panel.robynshomelab.dev` → `192.168.20.94`
-
-Cloudflare remains authoritative for the public domain.
-
-## Reverse Proxy Architecture
-
-CT106 provides the central Nginx reverse proxy and TLS termination.
-
-Current architecture:
-
-    Client
-      |
-      | HTTPS
-      v
-    Nginx / Certbot
-    CT106 - 192.168.20.94
-      |
-      +--> Jellyfin       192.168.20.98:8096
-      |
-      +--> Uptime Kuma    192.168.20.95:3001
-      |
-      +--> Beszel         192.168.20.96:8090
-      |
-      +--> Pi-hole        192.168.20.99:8080
-      |
-      +--> Pterodactyl    192.168.20.111:80
-
-TLS certificates are issued using Let's Encrypt DNS-01 through Cloudflare.
-
-## Pterodactyl
-
-Pterodactyl is hosted on VM108 on `pve-2`.
-
-The Panel is already installed and operational locally.
-
-Current architecture:
-
-    LAN / NetBird Client
-            |
-            | HTTPS
-            v
-    CT106 Nginx
-    192.168.20.94
-            |
-            | HTTP
-            v
-    VM108 Pterodactyl
-    192.168.20.111
-            |
-            +--> Nginx
-            +--> PHP-FPM
-            +--> Laravel
-            +--> MariaDB
-            +--> Redis
-
-The Panel is intended to remain private and accessible through the LAN and NetBird.
-
-The VM will later run Pterodactyl Wings and the game-server workloads.
-
-## NetBird
-
-CT101 acts as the NetBird routing peer.
-
-It provides access from NetBird clients to selected services on the LAN.
-
-Current routes include:
-
-    192.168.20.94/32
-    192.168.20.99/32
-
-This allows NetBird clients to reach the Nginx reverse proxy and Pi-hole.
-
-The Pterodactyl Panel therefore follows:
-
-    NetBird Client
-        |
-        v
-    CT101 NetBird
-        |
-        | 192.168.20.94/32
-        v
-    CT106 Nginx
-        |
-        v
-    VM108 Pterodactyl
-
-The Pterodactyl VM will eventually run its own NetBird peer for game-server networking.
+---
 
 ## Storage
 
-`pve-2` is intended to provide bulk storage using locally attached HDD storage.
+The Dell OptiPlex 9020 contains the primary 4 TB homelab data drive:
 
-A WD Blue 4 TB (`WD40EZRZ`) drive is intended for this purpose but has not yet been deployed.
+```text
+Model:       WDC WD40EZRZ-00GXCB
+Capacity:    ~4 TB
+Filesystem:  ext4
+Label:       homelab-data
+Mount:       /mnt/homelab-data
+```
 
-Planned architecture:
+The storage is organised as:
 
-    pve-2
-     |
-     +--> Proxmox / VM storage
-     |
-     +--> 4 TB HDD
-           |
-           +--> Host filesystem
-           |
-           +--> NFS/fileshare
-           |
-           +--> Future media storage
+```text
+/mnt/homelab-data/
+├── media/
+│   ├── anime/
+│   ├── books/
+│   ├── movies/
+│   ├── music/
+│   └── tv/
+├── downloads/
+│   ├── incomplete/
+│   └── complete/
+├── games/
+├── backups/
+└── shared/
+```
 
-The HDD is not intended to be used as Pterodactyl VM storage.
+pve-2 exports selected directories over NFS.
 
-A dedicated NAS operating system such as TrueNAS or OpenMediaVault is not part of the current design.
+The media and download shares are consumed by the media stack, while the games share is consumed by the Pterodactyl server.
 
-## Media
+The desktop also mounts the media storage directly over NFS.
 
-Jellyfin is already deployed on CT102.
+---
 
-A separate media automation stack is planned for VMID 103.
+## DNS Architecture
 
-Planned services include:
+Pi-hole provides DNS for the homelab on port 53.
 
-- Seerr/Jellyseerr
-- Sonarr
-- Radarr
-- Prowlarr
-- Bazarr
-- qBittorrent
+Unbound runs on the Pi-hole container and provides recursive DNS resolution and DNSSEC validation.
 
-The future media stack will use storage provided by `pve-2`.
+The basic DNS architecture is:
+
+```text
+Client
+  │
+  ▼
+Pi-hole :53
+  │
+  ▼
+Unbound :5335
+  │
+  ▼
+DNS hierarchy
+```
+
+Pi-hole remains responsible for:
+
+* DNS filtering
+* local DNS records
+* split-horizon DNS for homelab services
+
+Unbound provides recursive external DNS resolution.
+
+NetBird clients also use the Pi-hole DNS server at:
+
+```text
+192.168.20.99:53
+```
+
+---
+
+## Internal DNS
+
+The following service hostnames resolve internally through Pi-hole to the Nginx reverse proxy:
+
+```text
+panel.robynshomelab.dev
+jellyfin.robynshomelab.dev
+status.robynshomelab.dev
+beszel.robynshomelab.dev
+pihole.robynshomelab.dev
+```
+
+Internal resolution:
+
+```text
+Service hostname
+      │
+      ▼
+Pi-hole
+192.168.20.99
+      │
+      ▼
+192.168.20.94
+      │
+      ▼
+Nginx
+```
+
+The exception is the Wings hostname, which resolves to the Pterodactyl VM:
+
+```text
+wings.robynshomelab.dev
+        │
+        ▼
+192.168.20.111
+```
+
+---
+
+## Cloudflare and HTTPS
+
+Cloudflare is authoritative for:
+
+```text
+robynshomelab.dev
+```
+
+Cloudflare is used for:
+
+* authoritative DNS
+* DDNS
+* DNS-01 ACME validation
+* Let's Encrypt certificate issuance
+
+Cloudflare is **not** being used as a reverse proxy for homelab traffic.
+
+The Cloudflare records are DNS-only.
+
+The public `panel.robynshomelab.dev` record points to the home's WAN address for DNS and ACME purposes. This does **not** mean the Panel is directly reachable from the public Internet, as there is no router port forwarding.
+
+---
+
+## Reverse Proxy
+
+Nginx and Certbot run on CT106:
+
+```text
+Hostname: nginx
+IP:       192.168.20.94
+```
+
+Nginx terminates HTTPS and forwards requests to internal services.
+
+Current reverse-proxy architecture:
+
+```text
+Client
+  │
+  │ HTTPS :443
+  ▼
+Nginx
+192.168.20.94
+  │
+  ├── jellyfin.robynshomelab.dev
+  │       └── 192.168.20.98:8096
+  │
+  ├── status.robynshomelab.dev
+  │       └── 192.168.20.95:3001
+  │
+  ├── beszel.robynshomelab.dev
+  │       └── 192.168.20.96:8090
+  │
+  ├── pihole.robynshomelab.dev
+  │       └── 192.168.20.99:8080
+  │
+  └── panel.robynshomelab.dev
+          └── 192.168.20.111:80
+```
+
+The Pterodactyl Panel is therefore accessed through:
+
+```text
+HTTPS :443
+    │
+    ▼
+CT106 Nginx
+    │
+    ▼
+HTTP :80
+    │
+    ▼
+VM108 Pterodactyl Panel
+```
+
+Let's Encrypt certificates are obtained using Cloudflare DNS-01 validation.
+
+Certificate renewal is automated through Certbot's systemd timer.
+
+---
+
+## Remote Access
+
+NetBird provides private remote access to the homelab.
+
+There are currently two independent NetBird peers involved in the infrastructure.
+
+### CT101 — LAN Routing Peer
+
+```text
+CT101
+192.168.20.97
+NetBird IP: 100.113.51.59
+```
+
+CT101 provides access from NetBird clients into selected homelab LAN addresses.
+
+Current advertised routes include:
+
+```text
+192.168.20.94/32
+192.168.20.99/32
+```
+
+This provides NetBird clients with access to:
+
+* Nginx
+* Pi-hole/DNS
+
+NetBird DNS is configured to use:
+
+```text
+192.168.20.99:53
+```
+
+### VM108 — Independent NetBird Peer
+
+The Pterodactyl VM is also independently connected to NetBird:
+
+```text
+VM108
+192.168.20.111
+NetBird IP: 100.113.229.169
+FQDN: pterodactyl.netbird.cloud
+```
+
+This peer is independent of CT101.
+
+The distinction is intentional:
+
+```text
+NetBird client
+    │
+    ├── CT101
+    │     └── LAN routing
+    │
+    └── VM108
+          └── Direct Pterodactyl VM access
+```
+
+The NetBird game-server networking configuration remains an area of ongoing development.
+
+---
+
+## Media Architecture
+
+The media stack is deployed on CT103:
+
+```text
+CT103
+192.168.20.93
+```
+
+The stack uses Docker and consists of:
+
+* qBittorrent
+* Prowlarr
+* FlareSolverr
+* Sonarr
+* Radarr
+* Bazarr
+* Seerr
+
+The general workflow is:
+
+```text
+Seerr
+  │
+  ├── Sonarr
+  │
+  └── Radarr
+        │
+        ▼
+     Prowlarr
+        │
+        ▼
+    qBittorrent
+        │
+        ▼
+      NFS
+        │
+        ├── downloads
+        │
+        ▼
+     Sonarr/Radarr
+        │
+        ▼
+      media
+        │
+        ▼
+     Jellyfin
+```
+
+The media data is stored on pve-2 and accessed by CT103 through NFS.
+
+Jellyfin runs separately on CT102 because the Dell OptiPlex 3060 provides access to Intel integrated graphics for hardware-accelerated transcoding.
+
+---
+
+## Jellyfin
+
+Jellyfin runs on:
+
+```text
+CT102
+192.168.20.98
+```
+
+Jellyfin uses the NFS-backed media storage provided by pve-2.
+
+The current media architecture is:
+
+```text
+pve-2 storage
+      │
+      │ NFS
+      ▼
+CT103 media stack
+      │
+      │ media files
+      ▼
+Jellyfin CT102
+192.168.20.98
+```
+
+Moonbase is installed in Jellyfin and provides the integration layer used by the current Jellyfin environment.
+
+Moonfin is also configured on the Android TV client.
+
+Seerr is integrated with Jellyfin and provides media request functionality.
+
+---
+
+## Pterodactyl
+
+Pterodactyl is deployed on VM108:
+
+```text
+VMID:     108
+Hostname: pterodactyl
+IP:       192.168.20.111
+OS:       Debian 13
+```
+
+The VM hosts:
+
+* Pterodactyl Panel
+* Wings
+* Docker
+* MariaDB
+* Redis
+* Nginx
+* PHP-FPM
+
+The Panel is available internally through:
+
+```text
+https://panel.robynshomelab.dev
+```
+
+The current access path is:
+
+```text
+Client
+  │
+  ▼
+Nginx CT106
+192.168.20.94
+  │
+  ▼
+Pterodactyl VM108
+192.168.20.111
+```
+
+Wings is installed and running as a systemd service.
+
+The Wings daemon provides the Docker-based game-server environment.
+
+Game-server networking and public/NetBird access are still being developed.
+
+---
 
 ## Monitoring
 
-Current monitoring services:
+Two monitoring systems are currently deployed.
 
-- Beszel — CT104
-- Uptime Kuma — CT105
+### Beszel
 
-Future monitoring will include the Pterodactyl VM, Wings, and game servers.
+Beszel provides system-level monitoring and resource utilisation information.
 
-## Security Model
+It runs on:
 
-The homelab is designed to minimise direct public exposure.
+```text
+CT104
+192.168.20.96
+```
 
-There is currently no router port forwarding for homelab services.
+Future monitoring expansion includes additional coverage of:
 
-Cloudflare provides:
+* VM108
+* Wings
+* game servers
+* storage
+* Docker
+* network infrastructure
 
-- Authoritative DNS
-- DDNS
-- Let's Encrypt DNS-01 validation
+### Uptime Kuma
 
-Cloudflare proxying is not currently used.
+Uptime Kuma provides service availability monitoring.
 
-Internal services are accessed through:
+It runs on:
 
-- LAN
-- NetBird
+```text
+CT105
+192.168.20.95
+```
 
-Secrets, API tokens, passwords, private keys, and credentials must never be committed to this repository.
+It is intended for monitoring service availability and network-reachable endpoints.
 
-## Documentation Principles
+---
 
-This repository should describe the actual deployed architecture rather than the intended future design.
+## Current Service Inventory
 
-When documenting future components:
+| Service              | Host     | IP               | Status   |
+| -------------------- | -------- | ---------------- | -------- |
+| Pi-hole              | CT100    | `192.168.20.99`  | Deployed |
+| Unbound              | CT100    | `192.168.20.99`  | Deployed |
+| ddclient             | CT100    | `192.168.20.99`  | Deployed |
+| NetBird routing peer | CT101    | `192.168.20.97`  | Deployed |
+| Jellyfin             | CT102    | `192.168.20.98`  | Deployed |
+| Media stack          | CT103    | `192.168.20.93`  | Deployed |
+| Beszel               | CT104    | `192.168.20.96`  | Deployed |
+| Uptime Kuma          | CT105    | `192.168.20.95`  | Deployed |
+| Nginx                | CT106    | `192.168.20.94`  | Deployed |
+| Certbot              | CT106    | `192.168.20.94`  | Deployed |
+| Homarr               | VMID 107 | —                | Reserved |
+| Pterodactyl Panel    | VM108    | `192.168.20.111` | Deployed |
+| Wings                | VM108    | `192.168.20.111` | Deployed |
 
-- Clearly label them as planned or in progress.
-- Do not describe planned services as deployed.
-- Do not expose credentials or secrets.
-- Prefer actual IP addresses, VMIDs, hostnames, and service paths where useful.
-- Update documentation whenever the architecture changes.
+---
 
-The AI context file at the repository root provides the canonical machine-readable summary of the homelab state.
+## Planned Infrastructure
 
-## High-Level Architecture
+The following components are still planned or under development:
 
-    Internet
-       |
-       v
-    Cloudflare DNS
-       |
-       v
-    Home Router
-    192.168.20.1
-       |
-       | 192.168.20.0/24
-       |
-       +-----------------------------+
-       |                             |
-       v                             v
-    pve-1                          pve-2
-    192.168.20.100                 192.168.20.101
-       |                             |
-       |                             +--> VM108 Pterodactyl
-       |                                  192.168.20.111
-       |
-       +--> CT100 Pi-hole / Unbound
-       |    192.168.20.99
-       |
-       +--> CT101 NetBird
-       |    192.168.20.97
-       |
-       +--> CT102 Jellyfin
-       |    192.168.20.98
-       |
-       +--> CT104 Beszel
-       |    192.168.20.96
-       |
-       +--> CT105 Uptime Kuma
-       |    192.168.20.95
-       |
-       +--> CT106 Nginx / Certbot
-            192.168.20.94
-                |
-                +--> Jellyfin
-                +--> Uptime Kuma
-                +--> Beszel
-                +--> Pi-hole
-                +--> Pterodactyl
+1. Finalise Pterodactyl game-server networking
+2. Harden VM108 firewall using nftables
+3. Expand monitoring to VM108, Wings, storage and game servers
+4. Deploy Homarr
+5. Further develop network segmentation
+6. Introduce managed switching
+7. Consider VLAN segmentation
+8. Consider a dedicated firewall/router such as pfSense
 
-## Current Priority
+The architecture will continue to evolve as these components are introduced.
 
-The immediate infrastructure priority is completing the Pterodactyl deployment:
+---
 
-1. Complete HTTPS access through CT106.
-2. Install and configure Wings.
-3. Register VM108 as a Pterodactyl node.
-4. Verify Docker/Wings operation.
-5. Install NetBird directly on VM108.
-6. Configure game-server networking.
-7. Deploy the first game server.
-8. Add monitoring and backups.
+## Documentation Philosophy
+
+Each major component should document:
+
+* What the technology does
+* Why it is being used
+* How it fits into the homelab
+* How it was configured
+* Important configuration files
+* How the configuration was tested
+* Problems encountered during setup
+* How those problems were resolved
+* Security considerations
+* Future improvements
+
+Configuration files containing credentials, private keys, API tokens, or other secrets must never be committed to the repository.
+
+The Git repository is therefore intended to provide a **reproducible technical record of the homelab without exposing secrets**.
+
+---
+
+## Versioning
+
+Major architectural changes will be represented by Git commits and, where appropriate, Git tags.
+
+Network diagrams will also be versioned as the infrastructure evolves.
+
+The current architecture represents the transition from the original single-host deployment to a two-node Proxmox cluster with dedicated storage, media automation, reverse-proxy infrastructure, and Pterodactyl.
+
+Example progression:
+
+```text
+v1 — Single Proxmox host
+v2 — Two-node Proxmox cluster
+v3 — Dedicated storage and NFS
+v4 — Media automation stack
+v5 — Pterodactyl deployment
+v6 — Future network segmentation
+```
+
+The exact versioning scheme may evolve as the homelab grows.

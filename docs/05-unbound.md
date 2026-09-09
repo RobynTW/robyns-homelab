@@ -1,235 +1,393 @@
 # Unbound
 
-## Overview
-
 Unbound provides recursive DNS resolution for the homelab.
 
-It runs locally on CT100 alongside Pi-hole.
+It runs alongside Pi-hole in CT100. Pi-hole remains the client-facing DNS server, while Unbound performs recursive DNS resolution.
 
-Hostname:
+---
 
-    pihole
+## Container
 
-IP address:
+```text
+VMID:     100
+Hostname: pihole
+IP:       192.168.20.99
+Host:      pve-1
+```
 
-    192.168.20.99
+CT100 runs:
 
-Unbound listens only on the local loopback interface.
+* Pi-hole
+* Unbound
+* ddclient
 
-    127.0.0.1:5335
+---
 
-## DNS Architecture
+# DNS Architecture
 
-The current DNS path is:
+The current DNS architecture is:
 
-    LAN / NetBird Client
-            |
-            | DNS
-            v
-    Pi-hole
-    192.168.20.99:53
-            |
-            | forwarded DNS
-            v
-    Unbound
-    127.0.0.1:5335
-            |
-            v
-    Authoritative DNS infrastructure
-            |
-            v
-    Internet
+```text
+Client
+  │
+  │ DNS :53
+  ▼
+Pi-hole
+192.168.20.99
+  │
+  │ filtered / local DNS
+  ▼
+Unbound
+  │
+  │ recursive DNS
+  ▼
+DNS hierarchy
+```
 
-Pi-hole remains the client-facing DNS service.
+Pi-hole is the only DNS service that clients are expected to use directly.
 
-Unbound is not directly exposed to the LAN or NetBird network.
+Unbound is an internal upstream resolver for Pi-hole.
 
-## Role of Pi-hole
+---
 
-Pi-hole provides:
+# Why Unbound Is Used
 
-- DNS filtering
-- Local DNS records
-- DNS access for LAN clients
-- DNS access for NetBird clients
+Unbound provides recursive DNS resolution rather than relying entirely on a third-party recursive resolver.
 
-When a query is not answered by a local Pi-hole DNS record or blocked by filtering, Pi-hole forwards the query to Unbound.
+This gives the homelab greater control over DNS resolution and allows DNSSEC validation to be performed locally.
+
+The architecture also keeps DNS filtering and recursive resolution as separate functions:
+
+```text
+Pi-hole
+├── DNS filtering
+├── Local DNS records
+└── Client-facing DNS
+
+Unbound
+├── Recursive resolution
+└── DNSSEC validation
+```
+
+---
+
+# Listening Address
+
+Unbound runs locally on CT100 and is configured as the upstream resolver for Pi-hole.
+
+The expected architecture is:
+
+```text
+192.168.20.99:53
+        │
+        ▼
+   Pi-hole FTL
+        │
+        ▼
+   Unbound
+```
+
+Unbound should not be exposed directly to the LAN when Pi-hole is functioning as intended.
+
+---
+
+# Pi-hole Integration
+
+Pi-hole forwards external DNS queries to Unbound.
+
+For an external hostname:
+
+```text
+Client
+  │
+  ▼
+Pi-hole
+  │
+  ▼
+Unbound
+  │
+  ├── Root servers
+  ├── TLD servers
+  └── Authoritative DNS servers
+```
+
+For a local homelab hostname:
+
+```text
+Client
+  │
+  ▼
+Pi-hole
+  │
+  ▼
+Local DNS record
+```
+
+Local records therefore do not need to pass through Unbound.
+
+---
+
+# DNSSEC
+
+Unbound is responsible for DNSSEC validation.
+
+This provides cryptographic validation of DNS data where DNSSEC is available.
+
+DNSSEC validation occurs before a response is returned to Pi-hole.
+
+The simplified process is:
+
+```text
+DNS query
+   │
+   ▼
+Pi-hole
+   │
+   ▼
+Unbound
+   │
+   ├── Resolve
+   ├── Validate DNSSEC
+   │
+   ▼
+Validated response
+   │
+   ▼
+Pi-hole
+   │
+   ▼
+Client
+```
+
+---
+
+# NetBird DNS
+
+NetBird clients use Pi-hole as their DNS server:
+
+```text
+192.168.20.99:53
+```
+
+The NetBird DNS path is therefore:
+
+```text
+NetBird Client
+      │
+      ▼
+CT101
+      │
+      ▼
+Pi-hole
+192.168.20.99:53
+      │
+      ▼
+Unbound
+```
+
+This allows remote NetBird clients to use the same DNS filtering and recursive DNS infrastructure as local LAN clients.
+
+---
+
+# Split DNS
+
+Pi-hole handles internal DNS records before forwarding external queries to Unbound.
 
 For example:
 
-    Client
-      |
-      | example.com
-      v
-    Pi-hole
-      |
-      | 127.0.0.1:5335
-      v
-    Unbound
-      |
-      v
-    Internet DNS infrastructure
+```text
+panel.robynshomelab.dev
+```
 
-## Listening Address
+is resolved internally by Pi-hole to:
 
-Unbound is intentionally bound to:
+```text
+192.168.20.94
+```
 
-    127.0.0.1:5335
+This query does not need to be recursively resolved by Unbound.
 
-This prevents external clients from querying Unbound directly.
+External queries such as:
 
-Clients should use:
+```text
+example.com
+```
 
-    192.168.20.99:53
+are instead passed through the normal recursive path:
 
-rather than:
+```text
+Pi-hole
+   ↓
+Unbound
+   ↓
+DNS hierarchy
+```
 
-    192.168.20.99:5335
+---
 
-Pi-hole is responsible for forwarding appropriate queries to Unbound.
+# Testing
 
-## Local DNS Overrides
-
-Local homelab service names are handled by Pi-hole rather than Unbound.
-
-Current internal service names include:
-
-    jellyfin.robynshomelab.dev
-    status.robynshomelab.dev
-    beszel.robynshomelab.dev
-    pihole.robynshomelab.dev
-    panel.robynshomelab.dev
-
-These resolve internally through Pi-hole to CT106:
-
-    192.168.20.94
-
-Unbound is therefore primarily responsible for recursive external DNS resolution.
-
-## NetBird
-
-NetBird clients use Pi-hole as their DNS server.
-
-    NetBird Client
-          |
-          v
-    192.168.20.99:53
-          |
-          v
-    Pi-hole
-          |
-          v
-    127.0.0.1:5335
-          |
-          v
-    Unbound
-
-This means NetBird clients receive the same Pi-hole filtering and internal DNS behaviour as LAN clients.
-
-## Security
-
-Unbound should remain locally accessible only.
-
-The intended exposure is:
-
-    127.0.0.1:5335
-
-It should not be exposed through:
-
-- The router
-- Nginx
-- NetBird routes
-- Public DNS
-- WAN port forwarding
-
-The Pi-hole DNS service is the controlled entry point for DNS clients.
-
-## Verification
-
-### Check Unbound service
-
-On CT100:
-
-    systemctl status unbound
-
-### Check listening sockets
-
-On CT100:
-
-    ss -lntup | grep 5335
-
-The expected listener is on:
-
-    127.0.0.1:5335
-
-### Query Unbound directly
+## Check Unbound Service
 
 From CT100:
 
-    dig @127.0.0.1 -p 5335 example.com
+```bash
+systemctl status unbound
+```
 
-A successful response confirms that Unbound can perform recursive DNS resolution.
+The service should report as running.
 
-### Query Pi-hole
+---
 
-From CT100 or another LAN client:
+## Check Unbound Listening Socket
 
-    dig @192.168.20.99 example.com
+From CT100:
 
-This tests the client-facing DNS path.
+```bash
+ss -lntup | grep unbound
+```
 
-### Test internal DNS
+This can be used to confirm that Unbound is listening on its configured local address and port.
+
+---
+
+## Test Through Pi-hole
+
+From a client:
+
+```bash
+dig @192.168.20.99 example.com
+```
+
+A successful response confirms the client-facing DNS path is functioning.
+
+---
+
+## Test DNSSEC
+
+A DNSSEC-enabled test domain can be queried through Pi-hole to verify that Unbound is performing validation.
 
 For example:
 
-    dig @192.168.20.99 panel.robynshomelab.dev
+```bash
+dig @192.168.20.99 cloudflare.com
+```
 
-The expected internal result is:
+The response should be returned successfully when the DNSSEC chain validates.
 
-    192.168.20.94
+---
 
-This query should be answered by Pi-hole's local DNS configuration rather than requiring recursive resolution through Unbound.
+# Troubleshooting
 
-## Troubleshooting
+If DNS resolution fails, troubleshoot the chain from the outside inward.
 
-If external DNS resolution fails:
+### 1. Check Pi-hole
 
-1. Check Pi-hole.
-2. Check Unbound.
-3. Confirm Unbound is listening on `127.0.0.1:5335`.
-4. Test Unbound directly with `dig`.
-5. Test Pi-hole separately.
-6. Check Pi-hole query logs.
+```bash
+systemctl status pihole-FTL
+```
 
-Useful commands:
+### 2. Check Unbound
 
-    systemctl status pihole-FTL
+```bash
+systemctl status unbound
+```
 
-    systemctl status unbound
+### 3. Check listening sockets
 
-    ss -lntup | grep 5335
+```bash
+ss -lntup | grep -E ':53|:5335'
+```
 
-    dig @127.0.0.1 -p 5335 example.com
+### 4. Test Pi-hole
 
-    dig @192.168.20.99 example.com
+```bash
+dig @192.168.20.99 example.com
+```
 
-If internal hostnames fail but external DNS works, check Pi-hole's local DNS records rather than Unbound first.
+### 5. Test Unbound directly
 
-## Current State
+If Unbound is configured to listen on localhost port 5335:
 
-Unbound is deployed and operational on CT100.
+```bash
+dig @127.0.0.1 -p 5335 example.com
+```
 
-Current configuration:
+The exact listening address and port should be confirmed against the active Unbound configuration before modifying it.
 
-    CT100
-    192.168.20.99
-        |
-        +--> Pi-hole :53
-        |
-        +--> Unbound 127.0.0.1:5335
-        |
-        +--> ddclient
+---
 
-Unbound is not intended to be directly accessible by clients.
+# Common Failure Modes
 
-Pi-hole remains the authoritative client-facing DNS service for the homelab.
+## Pi-hole Running, Unbound Stopped
+
+Clients can reach Pi-hole, but external DNS resolution may fail because Pi-hole's configured upstream resolver is unavailable.
+
+## Unbound Running, Pi-hole Unavailable
+
+Clients configured to use Pi-hole will not be able to use the homelab DNS service even though Unbound itself is operational.
+
+## NetBird DNS Failure
+
+If CT101 cannot route traffic to:
+
+```text
+192.168.20.99/32
+```
+
+NetBird clients may lose access to the homelab DNS server.
+
+This should be distinguished from an actual Pi-hole or Unbound failure.
+
+---
+
+# Security Considerations
+
+Unbound should remain an internal resolver.
+
+It should not be exposed directly to the public Internet.
+
+The current architecture intentionally places Pi-hole in front of Unbound:
+
+```text
+LAN / NetBird
+      │
+      ▼
+Pi-hole :53
+      │
+      ▼
+Unbound
+```
+
+This provides a clear boundary between client DNS requests and recursive DNS resolution.
+
+---
+
+# Operational Role
+
+Unbound is a supporting infrastructure service rather than the primary client-facing DNS service.
+
+The responsibilities are intentionally separated:
+
+| Component  | Responsibility                               |
+| ---------- | -------------------------------------------- |
+| Pi-hole    | Client-facing DNS, filtering, local records  |
+| Unbound    | Recursive DNS and DNSSEC validation          |
+| Cloudflare | Authoritative DNS for `robynshomelab.dev`    |
+| ddclient   | Dynamic WAN IP updates                       |
+| NetBird    | Private remote connectivity and DNS delivery |
+
+---
+
+# Future Improvements
+
+Potential future improvements include:
+
+* Secondary recursive DNS
+* Redundant Pi-hole/Unbound infrastructure
+* Improved DNS monitoring
+* Dedicated DNS/network VLAN
+* More detailed DNS performance monitoring
+* Automated configuration backups
+
+These features should only be documented as deployed after they have been implemented and tested.

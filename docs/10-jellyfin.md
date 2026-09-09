@@ -1,283 +1,668 @@
 # Jellyfin
 
-## Overview
+Jellyfin is the homelab's primary media server.
 
-Jellyfin provides the homelab's self-hosted media server.
+It runs in CT102 and provides streaming access to the media stored on the shared homelab storage.
 
-Hostname:
+---
+
+# Container
+
+```text
+VMID:     102
+Hostname: jellyfin
+IP:       192.168.20.98
+Host:     pve-1
+```
+
+CT102 runs Jellyfin on Debian 12 Bookworm.
+
+Current Jellyfin version:
+
+```text
+10.11.11.0
+```
+
+Installed packages include:
+
+```text
+jellyfin
+jellyfin-server
+jellyfin-web
+jellyfin-ffmpeg7
+```
+
+---
+
+# Architecture
+
+```text
+                         Homelab Storage
+                              │
+                              │ NFS
+                              ▼
+                         pve-2 .101
+                              │
+                              ▼
+                         pve-1 .100
+                              │
+                              ▼
+                         CT102 .98
+                          Jellyfin
+                              │
+                ┌─────────────┴─────────────┐
+                │                           │
+                ▼                           ▼
+             Clients                    Seerr
+```
 
-    jellyfin
+Jellyfin accesses the shared media through the NFS storage mounted on pve-1.
 
-IP address:
+---
 
-    192.168.20.98
+# Media Storage
 
-VMID:
+The primary media storage is the 4TB WD Blue drive installed in pve-2.
 
-    CT102
+The NFS architecture is:
 
-Jellyfin runs as an LXC container on `pve-1`.
+```text
+pve-2
+192.168.20.101
+    │
+    │ NFS
+    ▼
+pve-1
+192.168.20.100
+    │
+    │ bind mount
+    ▼
+CT102
+192.168.20.98
+```
 
-## Network
+On pve-1, the media share is mounted at:
 
-LAN:
+```text
+/mnt/homelab-media
+```
+
+CT102 receives this as:
+
+```text
+/mnt/media
+```
+
+---
+
+# Media Layout
 
-    192.168.20.0/24
+The current storage layout is:
 
-Jellyfin:
+```text
+/mnt/homelab-data/
+├── media/
+│   ├── anime/
+│   ├── books/
+│   ├── movies/
+│   ├── music/
+│   └── tv/
+├── downloads/
+│   ├── incomplete/
+│   └── complete/
+├── games/
+├── backups/
+└── shared/
+```
 
-    192.168.20.98
+Jellyfin primarily uses:
 
-Reverse proxy:
+```text
+/mnt/media/
+├── anime/
+├── books/
+├── movies/
+├── music/
+└── tv/
+```
+
+---
+
+# Library Organisation
+
+The Jellyfin libraries correspond to the media directories.
+
+The intended structure is:
+
+| Library | Path                |
+| ------- | ------------------- |
+| Anime   | `/mnt/media/anime`  |
+| Books   | `/mnt/media/books`  |
+| Movies  | `/mnt/media/movies` |
+| Music   | `/mnt/media/music`  |
+| TV      | `/mnt/media/tv`     |
+
+Only the libraries that have been configured in Jellyfin should be considered active.
+
+---
+
+# NFS Storage
+
+The media share is exported from pve-2 using NFS.
+
+The relevant export is:
 
-    192.168.20.94
+```text
+/mnt/homelab-data/media
+```
 
-Jellyfin's native HTTP port:
+The export is available to pve-1 and the desktop system.
 
-    8096
+pve-1 then provides the storage to CT102 through its NFS mount and LXC bind mount.
 
-The Jellyfin backend is not intended to be directly exposed to the Internet.
+This avoids giving CT102 direct access to the physical disk.
+
+---
+
+# Media Access Path
+
+A typical media file request follows this path:
+
+```text
+Jellyfin client
+      │
+      ▼
+Jellyfin CT102
+192.168.20.98
+      │
+      ▼
+/mnt/media
+      │
+      ▼
+pve-1 /mnt/homelab-media
+      │
+      ▼
+NFS
+      │
+      ▼
+pve-2 /mnt/homelab-data/media
+      │
+      ▼
+4TB WD Blue
+```
 
-## Reverse Proxy
+---
 
-Jellyfin is accessed through the central Nginx reverse proxy on CT106.
+# Reverse Proxy
 
-Hostname:
+Nginx provides the HTTPS endpoint:
 
-    jellyfin.robynshomelab.dev
+```text
+https://jellyfin.robynshomelab.dev
+```
 
-The internal DNS record points the hostname to:
+The internal DNS record resolves the hostname to:
 
-    192.168.20.94
+```text
+192.168.20.94
+```
 
-The traffic path is:
+Nginx then proxies the request to:
 
-    Client
-      |
-      | HTTPS
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      | HTTP
-      v
-    CT102 Jellyfin
-    192.168.20.98:8096
+```text
+192.168.20.98:8096
+```
 
-Nginx provides TLS termination.
+The complete path is:
 
-Jellyfin itself does not need to manage the public certificate.
+```text
+Client
+  │
+  ▼
+Pi-hole
+  │
+  ▼
+192.168.20.94
+  │
+  ▼
+Nginx
+  │
+  ▼
+192.168.20.98:8096
+  │
+  ▼
+Jellyfin
+```
 
-## DNS
+---
 
-Pi-hole provides the internal DNS record:
+# Remote Access
 
-    jellyfin.robynshomelab.dev -> 192.168.20.94
+Remote access is provided through NetBird.
 
-This allows LAN and NetBird clients to use the same hostname.
+CT101 routes:
 
-The DNS path for an internal client is:
+```text
+192.168.20.94/32
+```
 
-    Client
-      |
-      v
-    Pi-hole
-    192.168.20.99
-      |
-      v
-    192.168.20.94
-      |
-      v
-    Nginx
+to NetBird clients.
 
-## NetBird Access
+A remote client can therefore use:
 
-NetBird clients can access Jellyfin through the existing CT101 routing peer.
+```text
+https://jellyfin.robynshomelab.dev
+```
 
-The path is:
+The DNS path is:
 
-    NetBird Client
-          |
-          v
-    CT101
-    192.168.20.97
-          |
-          | 192.168.20.94/32
-          v
-    CT106 Nginx
-    192.168.20.94
-          |
-          v
-    CT102 Jellyfin
-    192.168.20.98
+```text
+NetBird client
+      │
+      ▼
+Pi-hole
+192.168.20.99
+      │
+      ▼
+192.168.20.94
+      │
+      ▼
+Nginx
+      │
+      ▼
+Jellyfin
+192.168.20.98
+```
 
-No direct NetBird route to CT102 is currently required.
+There is currently no router port forwarding for Jellyfin.
 
-## Storage
+---
 
-Jellyfin's current application and media storage configuration should be treated separately from the planned bulk-storage project.
+# Seerr Integration
 
-A WD Blue 4 TB (`WD40EZRZ`) HDD is planned for direct installation into `pve-2`.
+Jellyfin is integrated with Seerr running on CT103.
 
-The intended future storage architecture is:
+Seerr is available at:
 
-    pve-2
-      |
-      +--> 4 TB HDD
-            |
-            +--> Host filesystem
-            |
-            +--> NFS/fileshare
-                    |
-                    +--> Media stack
-                    +--> Jellyfin
+```text
+http://192.168.20.93:5055
+```
 
-The 4 TB HDD has not yet been installed and NFS has not yet been configured.
+The Jellyfin server URL configured for Seerr is:
 
-Therefore, documentation should not assume that Jellyfin currently depends on the future NFS storage.
+```text
+http://192.168.20.98:8096
+```
 
-## Media Stack Integration
+The public server URL configured for the integration is:
 
-A separate media automation stack is planned for VM103.
+```text
+http://192.168.20.98:8096
+```
 
-Planned components include:
+Seerr is responsible for media requests, while Jellyfin provides playback.
 
-- Seerr/Jellyseerr
-- Sonarr
-- Radarr
-- Prowlarr
-- Bazarr
-- qBittorrent
+---
 
-The future media stack will use the 4 TB storage on `pve-2` through NFS.
+# Moonbase
 
-Jellyfin will consume the resulting media library.
+Moonbase is installed manually because it was not available through the Jellyfin plugin catalogue.
 
-The media automation stack is not yet deployed.
+Installation location:
 
-## Security
+```text
+/var/lib/jellyfin/plugins/Moonbase
+```
 
-Jellyfin should remain behind the reverse proxy rather than being directly exposed through router port forwarding.
+Current release:
 
-The intended access methods are:
+```text
+2.2.0.0
+```
 
-- LAN
-- NetBird
-- Other explicitly configured private access paths
+Moonbase Sync is enabled.
 
-The backend address:
+Jellyfin was restarted after installation and the plugin loaded successfully.
 
-    192.168.20.98:8096
+---
 
-should not be exposed publicly unless the architecture is deliberately changed.
+# Moonfin
 
-## Verification
+Moonfin is used as a Jellyfin client on Android TV.
 
-### Check Jellyfin container
+The current setup has been tested successfully.
 
-From Proxmox:
+The general architecture is:
 
-    pct status 102
+```text
+Android TV
+    │
+    ▼
+Moonfin
+    │
+    ▼
+Jellyfin
+192.168.20.98
+```
 
-### Test Jellyfin directly
+---
 
-From the LAN:
+# Media Requests
 
-    curl -I http://192.168.20.98:8096
+The media request workflow is:
 
-A successful response confirms that the Jellyfin service is reachable directly.
+```text
+User
+ │
+ ▼
+Seerr
+ │
+ ├── Request movie
+ │
+ └── Request TV/anime
+ │
+ ▼
+Media automation stack
+ │
+ ├── Radarr
+ │
+ └── Sonarr
+ │
+ ▼
+Download
+ │
+ ▼
+Media storage
+ │
+ ▼
+Jellyfin
+ │
+ ▼
+Client
+```
 
-### Test Nginx backend
+The media automation stack runs separately in CT103.
 
-From CT106:
+---
 
-    curl -I http://192.168.20.98:8096
+# Verified Media Workflow
 
-### Test DNS
+The end-to-end movie workflow has been tested successfully.
 
-From an internal client:
+A test movie was imported:
 
-    dig @192.168.20.99 jellyfin.robynshomelab.dev
+```text
+Disclosure Day (2026)
+```
 
-Expected result:
+The resulting file was:
 
-    192.168.20.94
+```text
+/mnt/media/movies/Disclosure Day (2026)/
+└── Disclosure Day (2026) [1080p] [WEBRip] [5.1].mp4
+```
 
-### Test HTTPS
+File size at the time of testing was approximately:
 
-From an internal client:
+```text
+2.7 GB
+```
 
-    curl -I https://jellyfin.robynshomelab.dev
+This confirmed that the media automation stack could successfully deliver media to Jellyfin's storage.
 
-The request should terminate TLS on CT106 and be proxied to CT102.
+---
 
-## Troubleshooting
+# Jellyfin Refresh
 
-### Jellyfin is unreachable directly
+Jellyfin does not currently have an automated filesystem refresh configured.
 
-Check the container:
+A manual library scan can therefore be initiated from the Jellyfin interface when required.
 
-    pct status 102
+A future API-based refresh can be performed using Jellyfin's `/Library/Refresh` endpoint.
 
-Then check the Jellyfin service inside CT102.
+Example:
 
-### Jellyfin works directly but not through the hostname
+```bash
+curl -fsS \
+  -X POST \
+  -H "X-Emby-Token: ${JELLYFIN_API_KEY}" \
+  "http://192.168.20.98:8096/Library/Refresh"
+```
+
+The API key must not be stored in this repository.
+
+---
+
+# NFS Stale Handle Incident
+
+A previous NFS export change caused Jellyfin to encounter a stale NFS file handle.
+
+The issue was resolved by:
+
+1. Stopping CT102
+2. Remounting the media share on pve-1
+3. Restarting CT102
+4. Scanning the Jellyfin library
+
+The current NFS configuration has been corrected to use per-share exports.
+
+The issue should only be revisited if stale NFS handles recur.
+
+---
+
+# Troubleshooting
+
+## Check Jellyfin Service
+
+On CT102:
+
+```bash
+systemctl status jellyfin
+```
+
+---
+
+## Check Jellyfin Version
+
+```bash
+jellyfin --version
+```
+
+If that command is unavailable, check the installed package version:
+
+```bash
+dpkg -l | grep jellyfin
+```
+
+---
+
+## Check Listening Port
+
+```bash
+ss -lntp | grep 8096
+```
+
+Jellyfin should be listening on:
+
+```text
+192.168.20.98:8096
+```
+
+---
+
+## Test Locally
+
+From CT102:
+
+```bash
+curl -I http://127.0.0.1:8096
+```
+
+From another LAN host:
+
+```bash
+curl -I http://192.168.20.98:8096
+```
+
+---
+
+# Check Media Mount
+
+On CT102:
+
+```bash
+mount | grep /mnt/media
+```
+
+Then:
+
+```bash
+ls -lah /mnt/media
+```
+
+The expected directories include:
+
+```text
+anime
+books
+movies
+music
+tv
+```
+
+---
+
+# Check NFS Path
+
+On pve-1:
+
+```bash
+mount | grep homelab-media
+```
+
+Then:
+
+```bash
+ls -lah /mnt/homelab-media
+```
+
+On pve-2:
+
+```bash
+mount | grep homelab-data
+```
+
+Then:
+
+```bash
+ls -lah /mnt/homelab-data/media
+```
+
+---
+
+# Reverse Proxy Troubleshooting
+
+If Jellyfin works directly but not through HTTPS, test:
+
+```bash
+curl -I http://192.168.20.98:8096
+```
+
+Then verify the Nginx endpoint:
+
+```bash
+curl -I https://jellyfin.robynshomelab.dev
+```
 
 Check DNS:
 
-    dig @192.168.20.99 jellyfin.robynshomelab.dev
+```bash
+dig @192.168.20.99 jellyfin.robynshomelab.dev
+```
 
-Expected:
+The internal result should be:
 
-    192.168.20.94
+```text
+192.168.20.94
+```
 
-If DNS is correct, investigate CT106 Nginx.
+---
 
-### Nginx cannot reach Jellyfin
+# NFS Performance Considerations
 
-From CT106:
+Jellyfin's media files are stored on the 4TB WD Blue HDD.
 
-    curl -I http://192.168.20.98:8096
+The current architecture prioritises storage capacity and centralised media access rather than maximum disk performance.
 
-If this fails, investigate:
+The NFS path adds network overhead:
 
-- CT102 networking
-- Jellyfin service status
-- Container firewall configuration
-- Jellyfin listening address
+```text
+Jellyfin
+   │
+   ▼
+pve-1
+   │
+   ▼
+NFS
+   │
+   ▼
+pve-2 HDD
+```
 
-### NetBird client cannot access Jellyfin
+This is suitable for the current homelab workload.
 
-Check the route through CT101:
+---
 
-    192.168.20.94/32
+# Security
 
-Then verify that:
+Jellyfin is not directly exposed through router port forwarding.
 
-    jellyfin.robynshomelab.dev
+Access is provided through:
 
-resolves to:
+* LAN access
+* Nginx reverse proxy
+* HTTPS
+* NetBird remote access
 
-    192.168.20.94
+The backend Jellyfin port:
 
-## Current State
+```text
+8096
+```
 
-Jellyfin is deployed on CT102 and is available through the central Nginx reverse proxy.
+should remain an internal service port.
 
-Current architecture:
+---
 
-    Client
-      |
-      v
-    Pi-hole
-    192.168.20.99
-      |
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      v
-    CT102 Jellyfin
-    192.168.20.98:8096
+# Operational Principles
 
-The future 4 TB storage and media automation stack remain separate planned projects.
+The current Jellyfin deployment follows these principles:
+
+* Jellyfin runs in CT102
+* Media is stored on pve-2
+* Media is provided through NFS
+* pve-1 provides the LXC bind mount
+* Nginx provides HTTPS
+* Pi-hole provides internal split DNS
+* NetBird provides remote private access
+* Seerr handles media requests
+* Moonbase provides additional Jellyfin functionality
+* Moonfin is used as an Android TV client
+* No router port forwarding is required
+
+---
+
+# Future Improvements
+
+Potential future improvements include:
+
+* Automated Jellyfin library refreshes
+* Additional Jellyfin clients
+* Hardware transcoding if suitable hardware becomes available
+* Improved media monitoring
+* Jellyfin configuration backups
+* Additional storage capacity
+* Storage redundancy
+* Monitoring of Jellyfin and NFS performance
+
+Any future changes should be documented after deployment and verification.

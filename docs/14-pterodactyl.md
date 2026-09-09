@@ -1,665 +1,829 @@
 # Pterodactyl
 
-## Overview
+Pterodactyl provides game server management through a web-based Panel and Wings daemon.
+
+The deployment runs independently on VM108 rather than inside the Proxmox LXC media stack.
+
+---
+
+# Virtual Machine
+
+```text
+VMID:     108
+Hostname: pterodactyl
+IP:       192.168.20.111
+Host:     pve-2
+OS:       Debian 13 Trixie
+vCPU:     6
+RAM:      12 GB
+Disk:     40 GB virtual disk
+```
+
+The VM also has access to the physical game-storage NFS share provided by pve-2.
 
-Pterodactyl is the planned game-server management platform for the homelab.
+---
 
-The Pterodactyl Panel is currently deployed on a dedicated virtual machine.
+# Architecture
 
-The eventual primary workload is expected to be modded Minecraft, although additional game servers may be deployed in the future.
+```text
+                         User
+                           │
+                           ▼
+                 panel.robynshomelab.dev
+                           │
+                           ▼
+                    Nginx / CT106
+                    192.168.20.94
+                           │
+                           ▼
+                  Pterodactyl Panel
+                    VM108 / .111
+                           │
+                           ▼
+                         Wings
+                    VM108 / .111
+                           │
+                           ▼
+                   Docker containers
+                           │
+                           ▼
+                     Game servers
+```
 
-Current architecture:
+The Panel and Wings daemon run on the same VM but perform different roles.
 
-    Client
-      |
-      | HTTPS
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      | HTTP
-      v
-    VM108 Pterodactyl
-    192.168.20.111
-      |
-      v
-    Pterodactyl Panel
+---
 
-Wings and game servers have not yet been deployed.
+# Software Stack
 
-## VM108
+The VM currently runs:
 
-VMID:
+| Component         | Version / Role        |
+| ----------------- | --------------------- |
+| Debian            | 13 Trixie             |
+| Docker Engine     | 29.8.0                |
+| containerd        | 2.3.5                 |
+| runc              | 1.5.1                 |
+| PHP               | 8.3.33                |
+| PHP-FPM           | 8.3.33                |
+| MariaDB           | 11.8.6                |
+| Redis             | Installed             |
+| Composer          | 2.10.3                |
+| Nginx             | Installed             |
+| Pterodactyl Panel | Production deployment |
+| Wings             | 1.13.3                |
 
-    108
+---
 
-Hostname:
+# Pterodactyl Panel
 
-    pterodactyl
+The Panel is installed at:
 
-Host:
+```text
+/var/www/pterodactyl
+```
 
-    pve-2
+The application runs in production mode:
 
-IP address:
+```text
+APP_ENV=production
+APP_DEBUG=false
+```
 
-    192.168.20.111
+The application timezone is:
 
-Operating system:
+```text
+Australia/Melbourne
+```
 
-    Debian 13 Trixie
+The public application URL is:
 
-Kernel:
+```text
+https://panel.robynshomelab.dev
+```
 
-    6.12.107+deb13-amd64
+The Panel uses the local MariaDB and Redis services on VM108.
 
-Virtualisation:
+---
 
-    KVM
+# Panel Database
 
-CPU:
+The Panel database is hosted locally on VM108 using MariaDB.
 
-    6 vCPU
-    1 socket
-    6 cores
-    CPU type: host
+The database is used for Pterodactyl application state, including:
 
-Memory:
+* Users
+* Servers
+* Nodes
+* Locations
+* Allocations
+* Application configuration
+* Other Panel metadata
 
-    12 GB RAM
+Database credentials should not be stored in this documentation.
 
-Storage:
+---
 
-    40 GB virtual disk
-    local-lvm
+# Redis
 
-Firmware:
+Redis provides the Panel's queue/cache functionality.
 
-    OVMF / UEFI
+The Panel is configured to use Redis for its queue backend.
 
-Machine type:
+Redis is local to VM108.
 
-    Q35
+---
 
-Network:
+# Panel Setup
 
-    VirtIO on vmbr0
+The initial Panel deployment has been completed.
 
-SCSI controller:
+The following setup tasks have been performed:
 
-    VirtIO SCSI Single
+* Application installed
+* Production environment configured
+* Database created
+* Database migrations completed
+* Database seeders completed
+* Administrator account created
+* Storage link created
+* Application URL configured
+* HTTPS configured through Nginx
+* Wings node configured
+* Wings daemon connected to the Panel
 
-QEMU Guest Agent:
+---
 
-    Enabled
+# Nginx and HTTPS
 
-NUMA:
+The Panel is accessed through:
 
-    Disabled
+```text
+https://panel.robynshomelab.dev
+```
 
-Memory ballooning:
+The request path is:
 
-    Disabled
+```text
+Client
+  │
+  ▼
+DNS
+  │
+  ▼
+192.168.20.94
+  │
+  ▼
+Nginx / CT106
+  │
+  ▼
+192.168.20.111:80
+  │
+  ▼
+Pterodactyl Panel
+```
 
-Nested virtualisation:
+Nginx handles TLS termination.
 
-    Disabled
+The Panel backend itself listens over HTTP on the internal network.
 
-VM firewall:
+---
 
-    Currently disabled
+# Cloudflare DNS
 
-The VM is headless and is administered through SSH.
+Cloudflare is authoritative for:
 
-SSH:
+```text
+robynshomelab.dev
+```
 
-    ssh robyn@192.168.20.111
+The public Panel hostname is retained in Cloudflare DNS:
 
-## Installed Software
+```text
+panel.robynshomelab.dev
+```
 
-The VM currently contains the software required for the Pterodactyl Panel.
+The public record is DNS-only.
 
-Installed components include:
+It is retained primarily for:
 
-- Docker Engine Community
-- containerd
-- runc
-- PHP 8.3
-- PHP-FPM
-- MariaDB
-- Redis
-- Composer
-- Nginx
-- Git
-- curl
-- ca-certificates
-- gnupg2
-- sudo
-- lsb-release
-- tar
-- unzip
+* Public hostname consistency
+* DNS-01 certificate validation
+* Future access requirements
 
-PHP packages are supplied through the Sury repository.
+The presence of a public DNS record does **not** mean the Panel is directly reachable from the Internet.
 
-Current versions at deployment:
+There is currently no router port forwarding for the Panel.
 
-    Docker Engine: 29.8.0
-    containerd: 2.3.5
-    runc: 1.5.1
-    PHP: 8.3.33
-    MariaDB: 11.8.6
-    Composer: 2.10.3
+---
 
-Versions may change through normal system updates.
+# Internal DNS
 
-## Pterodactyl Panel
+Pi-hole provides the internal split-DNS record:
 
-Panel files are located at:
+```text
+panel.robynshomelab.dev
+    ↓
+192.168.20.94
+```
 
-    /var/www/pterodactyl
+This allows LAN clients to use the same hostname while traffic remains inside the homelab.
 
-The Panel uses:
+---
 
-    APP_ENV=production
-    APP_DEBUG=false
-    APP_TIMEZONE=Australia/Melbourne
-    APP_URL=https://panel.robynshomelab.dev
+# NetBird Access
 
-The Panel uses MariaDB locally on VM108.
+The Panel can be accessed remotely through NetBird.
 
-Database:
+The remote path is:
 
-    panel
+```text
+NetBird client
+      │
+      ▼
+CT101
+192.168.20.97
+      │
+      ▼
+192.168.20.94
+      │
+      ▼
+Nginx / CT106
+      │
+      ▼
+192.168.20.111
+      │
+      ▼
+Pterodactyl Panel
+```
 
-Database connection:
+CT101 advertises the Nginx address:
 
-    127.0.0.1
+```text
+192.168.20.94/32
+```
 
-Redis is used for the queue system.
+The Panel therefore does not need to be directly exposed to the Internet.
 
-The Laravel application key has been generated.
+---
 
-Database migrations and seed operations have been completed.
+# Wings
 
-A Panel administrator account has been created.
+Wings is the Pterodactyl daemon responsible for actually running game servers.
 
-Credentials are intentionally not documented.
+Binary:
 
-## Local Nginx
+```text
+/usr/local/bin/wings
+```
 
-VM108 runs a local Nginx instance in front of the Pterodactyl Laravel application.
+Version:
 
-The local backend is available at:
+```text
+1.13.3
+```
 
-    http://127.0.0.1
+Configuration:
 
-A local request previously returned:
+```text
+/etc/pterodactyl/config.yml
+```
 
-    HTTP 200
+The Wings configuration file is protected with:
 
-The service is also reachable from the LAN:
+```text
+chmod 600 /etc/pterodactyl/config.yml
+```
 
-    http://192.168.20.111
+because it contains sensitive configuration.
 
-A request to the LAN address previously returned:
+---
 
-    HTTP 200
+# Wings systemd Service
 
-The local Nginx configuration is responsible for serving the Panel application.
+Wings is managed by systemd.
 
-It does not provide the public TLS termination for the Panel.
+Service:
 
-## Reverse Proxy
+```text
+/etc/systemd/system/wings.service
+```
 
-The central reverse proxy is CT106.
+Check the service:
 
-CT106:
+```bash
+systemctl status wings
+```
 
-    nginx
-    192.168.20.94
+Start:
 
-Pterodactyl:
+```bash
+systemctl start wings
+```
 
-    192.168.20.111
+Stop:
 
-Public/internal hostname:
+```bash
+systemctl stop wings
+```
 
-    panel.robynshomelab.dev
+Restart:
 
-The intended traffic path is:
+```bash
+systemctl restart wings
+```
 
-    Client
-      |
-      | HTTPS :443
-      v
-    CT106 Nginx
-    192.168.20.94
-      |
-      | HTTP :80
-      v
-    VM108 Nginx
-    192.168.20.111
-      |
-      v
-    Pterodactyl Panel
-      |
-      +--> MariaDB
-      |
-      +--> Redis
+Enable at boot:
 
-TLS termination occurs on CT106.
+```bash
+systemctl enable wings
+```
 
-Traffic between CT106 and VM108 is currently HTTP on the internal LAN.
+View logs:
 
-## DNS
+```bash
+journalctl -u wings
+```
 
-Pi-hole provides internal split DNS.
+Follow live logs:
 
-The internal record is:
+```bash
+journalctl -u wings -f
+```
 
-    panel.robynshomelab.dev -> 192.168.20.94
+---
 
-This means internal clients reach the reverse proxy rather than connecting directly to VM108.
+# Pterodactyl Node
 
-The public Cloudflare record remains:
+The configured node is:
 
-    panel.robynshomelab.dev -> WAN IP
+```text
+Name:     pterodactyl
+Location: Home
+```
 
-Cloudflare is DNS-only and is not acting as a traffic proxy.
+The node is configured as private.
 
-The public record is retained for public DNS and ACME DNS-01 validation.
+Node FQDN:
 
-There is currently no router port forwarding exposing the Panel to the Internet.
+```text
+wings.robynshomelab.dev
+```
 
-## NetBird Access
+SSL is enabled.
 
-NetBird clients access the Panel through CT101's existing route to CT106.
+The node is not configured as being behind a proxy.
 
-NetBird routing peer:
+---
 
-    CT101
-    192.168.20.97
+# Wings Network
 
-Route:
+The Wings daemon uses:
 
-    192.168.20.94/32
+```text
+Daemon port: 8080
+SFTP port:   2022
+```
 
-Traffic path:
+The SFTP service allows appropriate Pterodactyl server-file management.
 
-    NetBird Client
-          |
-          v
-    CT101 NetBird
-    192.168.20.97
-          |
-          v
-    CT106 Nginx
-    192.168.20.94
-          |
-          v
-    VM108
-    192.168.20.111
-          |
-          v
-    Pterodactyl Panel
+The daemon port is used for Panel ↔ Wings communication.
 
-A direct NetBird route to VM108 is not required for the current Panel access architecture.
+---
 
-## TLS
+# Game Server Storage
 
-TLS for the Panel is intended to be handled by CT106.
+Game server data is stored under:
 
-Certificate management is provided by Certbot using Cloudflare DNS-01.
+```text
+/var/lib/pterodactyl/volumes
+```
 
-The certificate hostname is:
+This is the Wings daemon directory for server volumes.
 
-    panel.robynshomelab.dev
+The VM also mounts the dedicated NFS `games` share from pve-2.
 
-Certbot and the Cloudflare ACME credential are located on CT106.
+The architecture is:
 
-The Cloudflare API credential used for ACME is separate from the DDNS credential.
+```text
+pve-2
+  │
+  ▼
+/mnt/homelab-data/games
+  │
+  │ NFS
+  ▼
+VM108
+  │
+  ▼
+Pterodactyl game storage
+```
 
-Secrets are not stored in GitHub.
+The NFS share has been tested successfully by creating a file from VM108.
 
-The exact certificate deployment state should be verified on CT106 rather than assumed from the configuration alone.
+---
 
-## Security Model
+# Game Server Containers
 
-The Pterodactyl Panel is intended to remain private.
+Pterodactyl uses Docker containers for individual game servers.
 
-Preferred access:
+The architecture is:
 
-- LAN
-- NetBird
+```text
+Wings
+ │
+ ├── Docker container
+ │     └── Game server A
+ │
+ ├── Docker container
+ │     └── Game server B
+ │
+ └── Docker container
+       └── Game server C
+```
 
-There should be no direct router port forwarding to:
+Each Pterodactyl server is managed independently through the Panel.
 
-    192.168.20.111:80
+---
 
-or any other Panel management port.
+# Resource Allocation
 
-The public DNS record does not by itself expose the Panel.
+The current node configuration provides:
 
-The Panel's administrative interface should not be directly exposed to the public Internet.
+```text
+Memory:  10240 MiB
+Disk:    30720 MiB
+```
 
-## Wings
+The VM itself has:
 
-Wings is the Pterodactyl daemon responsible for managing game-server workloads.
+```text
+6 vCPU
+12 GB RAM
+```
 
-Wings is **not currently installed**.
+The available game-server resources therefore need to remain within the VM's physical allocation.
 
-The next major Pterodactyl deployment step is:
+---
 
-    Install Wings on VM108
-        |
-        v
-    Register VM108 as a Pterodactyl node
-        |
-        v
-    Connect Wings to the Panel
-        |
-        v
-    Verify Docker integration
-        |
-        v
-    Deploy first game server
+# Node and Allocation Management
 
-Wings configuration should only be documented after it has actually been installed and registered.
+The Panel controls:
 
-## Game Servers
+* Nodes
+* Locations
+* Allocations
+* Servers
+* Users
+* Resource limits
+* Docker images
+* Startup commands
+* Environment variables
 
-No game servers are currently deployed.
+Wings executes the configuration received from the Panel.
 
-The primary planned workload is:
+---
 
-    Modded Minecraft
+# Panel ↔ Wings Relationship
 
-Additional game servers may be added later.
+The Panel and Wings have separate responsibilities:
 
-Game servers will run through Docker under Wings.
+```text
+Pterodactyl Panel
+├── Web interface
+├── User management
+├── Server configuration
+├── Node management
+└── API
 
-The final CPU, RAM, storage, port allocations, and container limits should be determined when the first server is deployed.
+        │
+        │ API / daemon communication
+        ▼
 
-## Game Networking
+Wings
+├── Docker management
+├── Server lifecycle
+├── Console
+├── File operations
+└── Resource enforcement
+```
 
-Game-server networking is separate from Panel management traffic.
+If the Panel is unavailable, existing game servers managed by Wings may continue running, but Panel-based management will be unavailable.
 
-The intended future architecture is:
+If Wings is unavailable, the Panel may remain accessible but game-server management and execution will be affected.
 
-    Internet
-      |
-      v
-    NetBird Reverse Proxy
-      |
-      | NetBird tunnel
-      v
-    VM108
-      |
-      v
-    Wings
-      |
-      v
-    Specific game server
+---
 
-The Panel remains private.
+# NetBird Configuration
 
-Game allocations will be exposed only through the networking architecture established for the individual game servers.
+VM108 runs its own NetBird client independently from CT101.
 
-Direct router port forwarding is not part of the planned design unless explicitly introduced later.
+Current NetBird version:
 
-## NetBird on VM108
+```text
+0.78.1
+```
 
-VM108 is expected to become an independent NetBird peer when game-server networking is implemented.
+NetBird FQDN:
 
-This is separate from CT101.
+```text
+pterodactyl.netbird.cloud
+```
 
-Current:
+NetBird address:
 
-    NetBird Client
-        |
-        v
-    CT101
-        |
-        v
-    CT106
-        |
-        v
-    VM108 Panel
+```text
+100.113.229.169/16
+```
 
-Future game-server networking:
+CT101 and VM108 are separate NetBird peers.
 
-    NetBird Reverse Proxy
-        |
-        v
-    VM108 NetBird peer
-        |
-        v
-    Wings
-        |
-        v
-    Game server
+The VM does not depend on CT101 to function as a NetBird peer.
 
-The VM108 NetBird peer has not yet been configured.
+---
 
-## Game Allocations
+# Current Remote Access Architecture
 
-Game-server allocations should be created only after Wings is operational.
+The Panel uses CT101 as a routed path to Nginx:
 
-Allocations will depend on the actual game servers deployed.
+```text
+Remote device
+     │
+     ▼
+NetBird
+     │
+     ▼
+CT101
+100.113.51.59
+     │
+     ▼
+192.168.20.94
+     │
+     ▼
+Nginx
+     │
+     ▼
+192.168.20.111
+```
 
-Only the ports required by the game servers should be exposed.
+VM108's own NetBird peer is separate and can be used for direct private access where appropriate.
 
-Both TCP and UDP may be required depending on the game.
+---
 
-The final allocation table should be added to this document once the first game server is deployed.
+# Firewall Status
 
-## Firewall
+The VM's final firewall hardening has not yet been completed.
 
-The VM firewall is currently disabled.
+The intended firewall implementation is **nftables** rather than UFW.
 
-Firewall rules should not be finalised before Wings and the actual game-server allocations are known.
+This is important because Pterodactyl relies heavily on Docker networking, and Docker can interact with firewall rules and packet forwarding.
 
-Once the Pterodactyl networking architecture is operational, firewalling should restrict access to:
+Firewall changes should therefore be tested carefully against:
 
-- Panel management
-- Wings API
-- SFTP
-- Game allocations
-- Required internal services
+* Panel access
+* Wings ↔ Panel communication
+* Docker networking
+* Game-server networking
+* SFTP
+* NFS
+* NetBird
 
-The exact rules should be based on the final deployment rather than assumptions.
+Do not assume a generic UFW configuration is appropriate for this VM.
 
-## SFTP
+---
 
-Pterodactyl uses SFTP for server file management.
+# Troubleshooting
 
-The standard Pterodactyl SFTP port is planned to be:
+## Check Panel
 
-    2022
+Check the application directory:
 
-This should remain accessible only from:
+```bash
+cd /var/www/pterodactyl
+```
 
-- LAN
-- NetBird
+Check Nginx:
 
-The final configuration should be verified after Wings is installed.
+```bash
+nginx -t
+systemctl status nginx
+```
 
-## Storage
+---
 
-The current VM disk is:
+## Check PHP-FPM
 
-    40 GB
+```bash
+systemctl status php8.3-fpm
+```
 
-This is sufficient for the Panel installation but should not be treated as the final storage architecture for game servers.
+Check PHP version:
 
-The future storage requirements will depend on:
+```bash
+php -v
+```
 
-- Game-server count
-- World sizes
-- Modpacks
-- Backups
-- Logs
-- Docker images
-- Temporary files
+---
 
-The future 4 TB HDD on `pve-2` is intended for general homelab bulk storage and media storage.
+## Check MariaDB
 
-It is **not currently designated as Pterodactyl game-server storage**.
+```bash
+systemctl status mariadb
+```
 
-Any future Pterodactyl storage migration should be planned separately.
+---
 
-## Monitoring
+## Check Redis
 
-Pterodactyl should eventually be integrated with the existing monitoring infrastructure.
+```bash
+systemctl status redis
+```
 
-Potential monitoring includes:
+The exact service name may be verified with:
 
-- VM108 availability
-- CPU utilisation
-- Memory utilisation
-- Disk utilisation
-- Docker health
-- Wings availability
-- Panel availability
-- Game-server availability
+```bash
+systemctl list-units --type=service | grep -i redis
+```
 
-Uptime Kuma can provide service availability monitoring.
+---
 
-Beszel can provide system/resource monitoring.
+## Check Wings
 
-## Backups
+```bash
+systemctl status wings
+```
 
-Pterodactyl configuration and game-server data will require a dedicated backup strategy.
+Then inspect:
 
-Future backups should account for:
+```bash
+journalctl -u wings -n 100 --no-pager
+```
 
-- Panel configuration
-- Panel database
-- Wings configuration
-- Game-server data
-- Minecraft worlds
-- Server configuration
-- Modpacks
-- Docker-related data where necessary
+---
 
-Backups should not rely solely on the same physical storage as the live workload.
+## Check Docker
 
-The final backup strategy will be documented once game servers are deployed.
+```bash
+docker info
+```
 
-## Troubleshooting
+and:
 
-### Panel does not load through the hostname
+```bash
+docker ps
+```
 
-Check DNS:
+---
 
-    dig @192.168.20.99 panel.robynshomelab.dev
+## Check NFS
 
-Expected internal result:
+```bash
+findmnt
+```
 
-    192.168.20.94
+Look specifically for the game-storage mount.
 
-Then check CT106 Nginx.
+Test access:
 
-### CT106 cannot reach the Panel
+```bash
+ls -lah /mnt/homelab-data/games
+```
 
-From CT106:
+or the corresponding mounted path configured on VM108.
 
-    curl -I -H "Host: panel.robynshomelab.dev" http://192.168.20.111
+---
 
-A successful HTTP response indicates that CT106 can reach the VM and the local VM Nginx is responding.
+# Panel Access Troubleshooting
 
-### Panel works on VM108 but not through CT106
+If:
 
-Check:
+```text
+https://panel.robynshomelab.dev
+```
 
-- VM108 local Nginx
-- CT106 reverse-proxy configuration
-- DNS
-- TLS certificate
-- Host header handling
+does not work, check the dependency chain in order:
 
-### NetBird client cannot reach the Panel
+```text
+DNS
+ ↓
+192.168.20.94
+ ↓
+Nginx
+ ↓
+192.168.20.111:80
+ ↓
+Pterodactyl Panel
+ ↓
+PHP-FPM
+ ↓
+MariaDB / Redis
+```
 
-Check:
+For remote access, also verify:
 
-1. NetBird connection.
-2. CT101 route `192.168.20.94/32`.
-3. Internal DNS resolution.
-4. CT106 Nginx.
-5. CT106 -> VM108 connectivity.
+```text
+NetBird
+ ↓
+CT101
+ ↓
+192.168.20.94
+```
 
-### Panel works but Wings does not
+---
 
-Once Wings is installed, check:
+# Wings Troubleshooting
 
-- Docker
-- Wings service
-- Node registration
-- Panel/Wings authentication
-- Firewall rules
-- Required ports
-- TLS configuration
-- NetBird connectivity
+If the Panel is accessible but Wings is offline:
 
-## Deployment Plan
+```bash
+systemctl status wings
+```
 
-The remaining Pterodactyl deployment should proceed in this order:
+Then:
 
-1. Verify Panel HTTPS through CT106.
-2. Install Wings on VM108.
-3. Configure the Pterodactyl node.
-4. Register VM108 with the Panel.
-5. Connect and verify Wings.
-6. Verify Docker integration.
-7. Configure SFTP.
-8. Install NetBird on VM108.
-9. Verify VM108 NetBird connectivity.
-10. Establish the game-server networking architecture.
-11. Create the first game allocation.
-12. Deploy the first game server.
-13. Configure monitoring.
-14. Configure backups.
-15. Apply final firewall rules.
-16. Document the final deployment.
+```bash
+journalctl -u wings -n 100 --no-pager
+```
 
-## Current State
+Check that Docker is operational:
 
-Current deployed components:
+```bash
+systemctl status docker
+docker info
+```
 
-    VM108
-      |
-      +--> Debian 13
-      +--> Docker
-      +--> PHP / PHP-FPM
-      +--> MariaDB
-      +--> Redis
-      +--> Composer
-      +--> Nginx
-      +--> Pterodactyl Panel
+Also verify that the configured Wings endpoint and SSL settings match the Panel node configuration.
 
-Current access architecture:
+---
 
-    LAN / NetBird
-          |
-          v
-    CT106 Nginx
-    192.168.20.94
-          |
-          v
-    VM108
-    192.168.20.111
-          |
-          v
-    Pterodactyl Panel
+# Security Principles
 
-Not yet deployed:
+The Pterodactyl deployment follows these principles:
 
-    Wings
-    Pterodactyl game servers
-    VM108 NetBird peer
-    Game allocations
-    Game-server reverse proxy
-    Pterodactyl-specific firewall rules
-    Pterodactyl backup system
+* Panel is accessed through HTTPS
+* TLS is terminated by Nginx
+* No router port forwarding is currently configured
+* Internal DNS resolves the Panel hostname to Nginx
+* NetBird provides private remote access
+* Wings configuration is protected from other users
+* Game servers run in Docker containers
+* Firewall hardening will use nftables
+* Secrets are not stored in this documentation
 
-The Panel is therefore operational, while the actual game-server infrastructure remains a future deployment.
+---
+
+# Current State
+
+The following components are deployed and operational:
+
+```text
+VM108
+ ├── Debian 13
+ ├── Docker
+ ├── MariaDB
+ ├── Redis
+ ├── PHP-FPM
+ ├── Nginx
+ ├── Pterodactyl Panel
+ ├── Wings
+ ├── NetBird
+ └── NFS game storage
+```
+
+The Panel is accessible through:
+
+```text
+https://panel.robynshomelab.dev
+```
+
+Wings is installed, enabled, and running.
+
+The Pterodactyl node is configured and connected to the Panel.
+
+---
+
+# Future Improvements
+
+Potential future work includes:
+
+* Complete nftables firewall configuration
+* More comprehensive Wings monitoring
+* Game-server monitoring through Uptime Kuma/Beszel
+* Backup strategy for Panel data
+* Backup strategy for game-server data
+* Resource allocation tuning
+* Additional game-server deployments
+* Improved remote game-server networking
+* Further testing of direct NetBird access
+* Documenting individual game-server configurations as they are deployed
+
+Any future firewall or networking changes should preserve the current separation between:
+
+```text
+Panel
+Wings
+Docker
+NFS storage
+NetBird
+Nginx
+```

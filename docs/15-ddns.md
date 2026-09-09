@@ -1,270 +1,433 @@
 # Dynamic DNS
 
-## Overview
+Dynamic DNS (DDNS) keeps the homelab's Cloudflare DNS records associated with the current WAN IP address.
 
-Dynamic DNS (DDNS) keeps the homelab's public DNS record updated when the residential WAN IP address changes.
+The homelab uses `ddclient` running on CT100.
 
-The DDNS client runs on CT100 alongside Pi-hole and Unbound.
+---
 
-## Host
+# Container
 
-Container:
+```text id="1h4m3w"
+VMID:     100
+Hostname: pihole
+IP:       192.168.20.99
+Host:     pve-1
+```
 
-    CT100
+The DDNS service runs alongside Pi-hole and Unbound.
 
-Hostname:
+---
 
-    pihole
+# Role
 
-IP address:
+The purpose of DDNS is to automatically update the relevant Cloudflare DNS record if the ISP-assigned WAN IP changes.
 
-    192.168.20.99
+The architecture is:
 
-DDNS client:
+```text id="2n1k0m"
+ISP
+ │
+ ▼
+WAN IP
+ │
+ ▼
+Router
+ │
+ ▼
+CT100
+192.168.20.99
+ │
+ ▼
+ddclient
+ │
+ ▼
+Cloudflare DNS
+```
 
-    ddclient
+---
 
-Version:
+# Cloudflare
 
-    3.10.0
+Cloudflare is authoritative for:
 
-## Domain
+```text id="g9pyw4"
+robynshomelab.dev
+```
 
-Domain:
+The DDNS client communicates with Cloudflare's API to update the configured DNS record.
 
-    robynshomelab.dev
+Cloudflare records used by the homelab are primarily DNS records rather than Cloudflare-proxied application traffic.
 
-Registrar:
+---
 
-    Porkbun
+# Current DNS Architecture
 
-Authoritative DNS provider:
+The Panel hostname has a public Cloudflare DNS record:
 
-    Cloudflare
+```text id="8gzh6u"
+panel.robynshomelab.dev
+```
 
-DDNS hostname:
+The public record contains the WAN IP and is configured as DNS-only.
 
-    home.robynshomelab.dev
+Internally, Pi-hole provides split DNS so that the same hostname resolves to Nginx:
 
-The hostname points to the current residential WAN IP address.
+```text id="3f1f7e"
+LAN / NetBird client
+       │
+       ▼
+Pi-hole
+192.168.20.99
+       │
+       ▼
+192.168.20.94
+       │
+       ▼
+Nginx
+```
 
-## Architecture
+This means a changing WAN IP does not affect normal internal access.
 
-The DDNS update path is:
+---
 
-    Residential WAN
-          |
-          v
-    Current public IP
-          |
-          v
-    Cloudflare DNS
-          |
-          v
-    home.robynshomelab.dev
+# Why DDNS Is Still Used
 
-CT100 periodically checks the current public IP and updates the Cloudflare DNS record when required.
+Although internal clients use Pi-hole split DNS, maintaining the public Cloudflare record remains useful for:
 
-    CT100
-    192.168.20.99
-          |
-          v
-       ddclient
-          |
-          v
-      Cloudflare API
-          |
-          v
-    home.robynshomelab.dev
+* Keeping the public DNS zone current
+* Maintaining a consistent public hostname
+* DNS-01 ACME certificate validation
+* Future changes to external connectivity
 
-## Cloudflare Record
+A public DNS record does not itself provide network access to the homelab.
 
-The DDNS-managed record is:
+The router currently has no port forwarding configured for the homelab services.
 
-    home.robynshomelab.dev
+---
 
-It resolves to the residential WAN IP.
+# ddclient
 
-The record is DNS-only.
+`ddclient` runs on CT100.
 
-Cloudflare proxying is not used for this record.
+Check its service:
 
-## Update Interval
+```bash id="6s0d6x"
+systemctl status ddclient
+```
 
-ddclient checks for changes every:
+Start:
 
-    5 minutes
+```bash id="3lkl29"
+systemctl start ddclient
+```
 
-This provides reasonably fast recovery from a residential IP change without unnecessarily frequent API requests.
+Restart:
 
-## Credentials
+```bash id="em4lpf"
+systemctl restart ddclient
+```
 
-The Cloudflare API credential used by ddclient is stored locally on CT100.
+Enable at boot:
 
-Configuration location:
+```bash id="w1zq7a"
+systemctl enable ddclient
+```
 
-    /etc/ddclient.conf
+---
 
-The credential is restricted to the local system and must not be committed to GitHub.
+# Configuration
 
-The DDNS credential is separate from the Cloudflare API credential used by Certbot for ACME DNS-01 validation.
+The ddclient configuration is stored on CT100.
 
-No Cloudflare secrets should ever be stored in the repository.
+The configuration contains Cloudflare authentication information and therefore should **not** be committed to GitHub.
 
-## Interaction With Other Services
+Do not place API tokens, API keys, or other Cloudflare credentials in this documentation.
 
-DDNS maintains the public hostname:
+Inspect the configuration directly on CT100 when troubleshooting.
 
-    home.robynshomelab.dev
+---
 
-It is separate from the internal split-DNS records used by homelab services.
+# Cloudflare Authentication
 
-For example, internal services resolve through Pi-hole to the Nginx reverse proxy:
+The DDNS client requires permission to update the relevant Cloudflare DNS record.
 
-    jellyfin.robynshomelab.dev -> 192.168.20.94
-    status.robynshomelab.dev -> 192.168.20.94
-    beszel.robynshomelab.dev -> 192.168.20.94
-    pihole.robynshomelab.dev -> 192.168.20.94
-    panel.robynshomelab.dev -> 192.168.20.94
+The credential should follow the principle of least privilege.
 
-These records are separate from the public DDNS record.
+A scoped Cloudflare API token is preferred over broad account credentials where supported by the existing configuration.
 
-## Relationship With Cloudflare
+Credentials should be stored only on the host running ddclient.
 
-Cloudflare provides:
+---
 
-- Authoritative DNS
-- DDNS API access
-- ACME DNS-01 validation
+# Update Process
 
-Cloudflare is not being used as a reverse proxy for the homelab.
+When the WAN IP changes:
 
-The homelab therefore remains responsible for handling inbound traffic where router port forwarding is configured.
+```text id="9lhw8x"
+WAN IP changes
+      │
+      ▼
+ddclient detects change
+      │
+      ▼
+Cloudflare API
+      │
+      ▼
+DNS record updated
+```
 
-Currently, no router port forwarding is configured for the homelab's web services.
+The update process should not require any manual changes to the homelab.
 
-## Verification
+---
 
-Check the ddclient service:
+# Checking the Current WAN IP
 
-    systemctl status ddclient
+The current WAN address can be checked from CT100 with an external IP detection service.
 
-Check whether it is enabled:
+For example:
 
-    systemctl is-enabled ddclient
+```bash id="q8o9lz"
+curl -4 https://icanhazip.com
+```
 
-Inspect recent logs:
+The returned address should correspond to the current public WAN address.
 
-    journalctl -u ddclient
+---
 
-Check the configured hostname:
+# Checking Cloudflare DNS
 
-    grep -vE 'password|token|secret' /etc/ddclient.conf
+From a system with DNS tools installed:
 
-Do not print or share the unredacted configuration if it contains credentials.
+```bash id="8s3i2v"
+dig panel.robynshomelab.dev
+```
 
-## DNS Verification
+Because internal split DNS is in use, this may return the internal Nginx address when queried through Pi-hole.
 
-From an external network, query:
+To inspect the public Cloudflare record specifically, query an external resolver:
 
-    home.robynshomelab.dev
+```bash id="r9qf5d"
+dig @1.1.1.1 panel.robynshomelab.dev
+```
 
-The result should match the current residential WAN IP.
+The public result should correspond to the current WAN IP.
 
-From an internal client, DNS behaviour may differ depending on Pi-hole configuration and should not be assumed to represent the public Cloudflare response.
+---
 
-Cloudflare should be treated as the source of truth for the public record.
+# Important Split-DNS Distinction
 
-## Troubleshooting
+There are two different answers for the same hostname depending on where the DNS query originates.
 
-### The WAN IP changed but DNS did not
+Internal:
 
-Check ddclient:
+```text id="7p6i5n"
+panel.robynshomelab.dev
+        ↓
+192.168.20.94
+```
 
-    systemctl status ddclient
+Public:
 
-Then inspect logs:
+```text id="2zn5ct"
+panel.robynshomelab.dev
+        ↓
+WAN IP
+```
 
-    journalctl -u ddclient
+This is intentional.
 
-Verify that:
+The internal address allows clients to reach Nginx directly without hairpinning through the router.
 
-- ddclient is running
-- the Cloudflare credential is valid
-- the credential has permission to modify the DNS zone
-- the correct zone is configured
-- the correct hostname is configured
-- CT100 has Internet connectivity
+The public record remains available through Cloudflare DNS.
 
-### ddclient is not running
+---
 
-Check:
+# Troubleshooting
 
-    systemctl status ddclient
+## Check ddclient
 
-If necessary, restart it:
+```bash id="k0k9qb"
+systemctl status ddclient
+```
 
-    systemctl restart ddclient
+Check recent logs:
 
-Then verify the service:
+```bash id="f0n7u9"
+journalctl -u ddclient -n 100 --no-pager
+```
 
-    systemctl status ddclient
+Follow logs:
 
-### Cloudflare authentication fails
+```bash id="4t1q5e"
+journalctl -u ddclient -f
+```
 
-Do not replace credentials blindly.
+---
 
-Verify that the configured Cloudflare API token:
+# Force an Update
 
-- belongs to the DDNS configuration
-- has permission to modify the required DNS record
-- applies to the `robynshomelab.dev` zone
-- has not expired or been revoked
+If required, run ddclient manually using the installed configuration.
 
-The credential should remain separate from the Certbot ACME credential.
+First inspect the available options:
 
-### DNS resolves to an old address
+```bash id="l7p4j5"
+ddclient --help
+```
 
-First determine whether the issue is local caching or the Cloudflare record itself.
+Then perform a manual update using the appropriate configuration and flags.
 
-Check the authoritative DNS result from an external system.
+Do not place credentials directly into shell commands that may be retained in shell history.
 
-If Cloudflare still contains the old WAN IP, investigate ddclient.
+---
 
-If Cloudflare contains the new IP, investigate DNS caching or resolver behaviour.
+# Verify External Address
 
-## Security
+```bash id="v4r9t0"
+curl -4 https://icanhazip.com
+```
 
-The DDNS API credential should have the minimum permissions required to update the necessary DNS record.
+Compare the result against the public Cloudflare DNS record:
 
-The credential should:
+```bash id="9l2f5m"
+dig @1.1.1.1 panel.robynshomelab.dev
+```
 
-- remain on CT100
-- be readable only by authorised local users/services
-- never be committed to Git
-- never be included in documentation
-- remain separate from the ACME credential
+If they differ after sufficient DNS propagation time, investigate ddclient and Cloudflare authentication.
 
-The `.gitignore` configuration should prevent accidental inclusion of local secret files where appropriate.
+---
 
-## Current State
+# Common Failure Points
 
-Current DDNS deployment:
+If DDNS stops updating, check:
 
-    CT100
-    192.168.20.99
-        |
-        +--> ddclient 3.10.0
-        |
-        +--> Cloudflare API
-        |
-        v
-    home.robynshomelab.dev
+```text id="y3g4jv"
+CT100 running
+     │
+     ▼
+ddclient running
+     │
+     ▼
+Internet connectivity
+     │
+     ▼
+WAN IP detection
+     │
+     ▼
+Cloudflare API authentication
+     │
+     ▼
+Cloudflare DNS record
+```
 
-Update interval:
+---
 
-    5 minutes
+# DDNS vs Internal DNS
 
-Cloudflare remains the authoritative DNS provider.
+DDNS and Pi-hole split DNS perform different jobs.
 
-The DDNS system is independent of the internal Pi-hole split-DNS configuration and the CT106 Nginx reverse proxy.
+```text id="2dr9ra"
+ddclient
+└── Keeps public DNS current
+
+Pi-hole
+└── Provides internal DNS overrides
+```
+
+They should not be treated as competing DNS systems.
+
+---
+
+# Relationship With Certbot
+
+The Cloudflare DNS zone is also used for DNS-01 certificate validation.
+
+The certificate workflow is:
+
+```text id="n5y17w"
+Certbot
+   │
+   ▼
+Cloudflare DNS
+   │
+   ▼
+_acme-challenge record
+   │
+   ▼
+Certificate Authority
+```
+
+DDNS updates the normal public DNS record, while Certbot temporarily manages ACME challenge records.
+
+These are separate functions.
+
+---
+
+# Security
+
+DDNS credentials are sensitive.
+
+Do not commit:
+
+* Cloudflare API tokens
+* Cloudflare API keys
+* Passwords
+* Environment files containing secrets
+* Full ddclient configurations containing credentials
+
+The repository should document the configuration structure and operational behaviour without exposing authentication material.
+
+---
+
+# Current State
+
+The current DDNS deployment is:
+
+```text id="v8y0kq"
+CT100
+192.168.20.99
+ │
+ └── ddclient
+       │
+       ▼
+   Cloudflare
+       │
+       ▼
+panel.robynshomelab.dev
+```
+
+Internal clients use Pi-hole split DNS and resolve the Panel hostname to:
+
+```text id="45e1vz"
+192.168.20.94
+```
+
+The public Cloudflare record remains DNS-only.
+
+---
+
+# Operational Principles
+
+The DDNS deployment follows these principles:
+
+* `ddclient` runs on CT100
+* Cloudflare is the authoritative DNS provider
+* Public DNS is kept synchronized with the WAN IP
+* Internal clients use Pi-hole split DNS
+* Cloudflare proxying is not required
+* Router port forwarding is not required
+* Cloudflare credentials remain private
+* DDNS and ACME DNS-01 are separate functions
+
+---
+
+# Future Improvements
+
+Potential future improvements include:
+
+* Verify and document the exact ddclient update interval
+* Confirm the current Cloudflare API token scope
+* Add monitoring for DDNS update failures
+* Document the exact Cloudflare record managed by ddclient
+* Add a periodic external DNS verification check
+* Include DDNS health in the homelab monitoring strategy

@@ -1,175 +1,332 @@
 # Hardware
 
-## Overview
+This document describes the physical hardware currently used by the homelab.
 
-The homelab currently consists of two physical Dell OptiPlex systems running Proxmox VE as members of the same cluster.
+---
 
-The systems have different roles:
+## Hardware Overview
 
-- `pve-1` provides the primary core-infrastructure host.
-- `pve-2` provides additional compute capacity and will provide bulk HDD storage.
+The homelab currently consists of two physical Proxmox hosts.
 
-Neither system is intended to be a traditional dedicated NAS. Storage will be provided directly from `pve-2` using a host filesystem and NFS.
+| Host    | Model                  | CPU                |   RAM | Primary Role                       |
+| ------- | ---------------------- | ------------------ | ----: | ---------------------------------- |
+| `pve-1` | Dell OptiPlex 3060     | Intel CPU          |     — | Primary Proxmox host               |
+| `pve-2` | Dell OptiPlex 9020 SFF | Intel Core i7-4770 | 16 GB | Secondary Proxmox host and storage |
 
-## Physical Hosts
+Both systems are members of the `homelab` Proxmox cluster.
 
-| Host | Model | Role | IP |
-|---|---|---|---|
-| `pve-1` | Dell OptiPlex 3060 | Proxmox / core services | `192.168.20.100` |
-| `pve-2` | Dell OptiPlex 9020 SFF | Proxmox / Pterodactyl / storage | `192.168.20.101` |
+---
 
-Both hosts are members of the `homelab` Proxmox cluster.
+# pve-1
 
-## pve-1
+## System
 
-### System
+```text
+Hostname: pve-1
+Model:    Dell OptiPlex 3060
+IP:       192.168.20.100
+Role:     Primary Proxmox host
+```
 
-- Model: Dell OptiPlex 3060
-- Hostname: `pve-1`
-- IP address: `192.168.20.100`
-- Hypervisor: Proxmox VE
+pve-1 hosts the majority of the homelab's infrastructure services.
 
-`pve-1` currently hosts the majority of the core infrastructure containers.
+Current guests include:
 
-### Current Workloads
+| VMID | Guest         | Purpose                   |
+| ---: | ------------- | ------------------------- |
+|  100 | `pihole`      | Pi-hole, Unbound and DDNS |
+|  101 | `netbird`     | NetBird routing peer      |
+|  102 | `jellyfin`    | Jellyfin media server     |
+|  103 | `mediastack`  | Media automation          |
+|  104 | `beszel`      | Monitoring                |
+|  105 | `uptime-kuma` | Service monitoring        |
+|  106 | `nginx`       | Reverse proxy and TLS     |
+|  107 | —             | Reserved for Homarr       |
 
-- CT100 — Pi-hole / Unbound / DDNS
-- CT101 — NetBird routing peer
-- CT102 — Jellyfin
-- CT104 — Beszel
-- CT105 — Uptime Kuma
-- CT106 — Nginx / Certbot
+---
 
-Reserved:
+# pve-2
 
-- VM103 — future media stack
-- VM107 — future Homarr
+## System
 
-## pve-2
+```text
+Hostname: pve-2
+Model:    Dell OptiPlex 9020 SFF
+IP:       192.168.20.101
+CPU:      Intel Core i7-4770
+RAM:      16 GB
+Role:     Secondary Proxmox host / storage server
+```
 
-### System
+pve-2 is the second member of the `homelab` Proxmox cluster.
 
-- Model: Dell OptiPlex 9020 SFF
-- Hostname: `pve-2`
-- IP address: `192.168.20.101`
-- CPU: Intel Core i7-4770
-- CPU configuration: 4 physical cores / 8 logical threads
-- RAM: 16 GB
-- Hypervisor: Proxmox VE
-- Proxmox VE version: 9.2.2
-- Kernel: `7.0.2-6-pve`
+It currently hosts VM108 for Pterodactyl and provides the homelab's bulk storage and NFS services.
 
-### Current Workloads
+---
 
-VM108 is currently hosted on `pve-2`:
+## Internal Storage
 
-- Pterodactyl Panel
-- IP: `192.168.20.111`
-- 6 vCPU
-- 12 GB RAM
-- 40 GB virtual disk
+The primary bulk-storage disk installed in pve-2 is:
 
-The remaining host resources are available for future workloads and storage services.
+```text
+Model:       WDC WD40EZRZ-00GXCB
+Manufacturer: Western Digital
+Capacity:    4,000,787,030,016 bytes
+Approximate: 4 TB raw
+Rotation:    5400 RPM
+Interface:   SATA
+Logical sector: 512 bytes
+Physical sector: 4096 bytes
+Filesystem:  ext4
+Label:       homelab-data
+```
 
-## pve-2 Storage
+The disk is mounted at:
 
-The current Proxmox installation uses the internal SSD for the operating system and virtual machine storage.
+```text
+/mnt/homelab-data
+```
 
-The system contains:
+The disk is used for bulk homelab data rather than Proxmox VM storage.
 
-- Samsung MZ7PC128HA SSD
-- Approximately 119 GB raw capacity
+---
 
-VM108 currently uses a virtual disk on Proxmox `local-lvm`.
+## Drive Health
 
-### Future HDD Storage
+The WD Blue drive passed SMART health checks during installation.
 
-A WD Blue 4 TB HDD is intended to be installed in `pve-2`.
+At the time of inspection:
 
-Drive:
+* No reallocated sectors were reported
+* No pending sectors were reported
+* No uncorrectable sectors were reported
+* No reported SATA CRC errors were present
+* Drive temperature was approximately 20 °C
+* Approximately 9,000 power-on hours were reported
 
-- Model: WD40EZRZ
-- Capacity: 4 TB
-- Type: WD Blue consumer desktop HDD
-- Current status: Not yet installed
+A full extended SMART test was not run during the initial inspection because the estimated completion time was several hours.
 
-The intended purpose of this drive is bulk file storage rather than Proxmox VM storage.
+The drive should continue to be monitored through SMART and the homelab's monitoring infrastructure.
 
-Planned architecture:
+---
 
-    pve-2
-      |
-      +--> Internal SSD
-      |     |
-      |     +--> Proxmox
-      |     +--> VM108
-      |
-      +--> 4 TB HDD
-            |
-            +--> Host filesystem
-            |
-            +--> NFS/fileshare
-            |
-            +--> Future media storage
+## Storage Layout
 
-The HDD will not be used as the primary storage location for the Pterodactyl VM.
+The bulk-storage filesystem is organised as:
 
-## HDD Power Considerations
+```text
+/mnt/homelab-data/
+├── media/
+│   ├── anime/
+│   ├── books/
+│   ├── movies/
+│   ├── music/
+│   └── tv/
+├── downloads/
+│   ├── incomplete/
+│   └── complete/
+├── games/
+├── backups/
+└── shared/
+```
 
-The OptiPlex 9020 SFF uses Dell-specific internal power cabling.
+### `media`
 
-The system currently has:
+Stores the organised media library consumed by Jellyfin.
 
-- One standard SATA power connection
-- One additional Dell proprietary/slim connector associated with the optical-drive configuration
+### `downloads`
 
-Because the proprietary connector has not been fully established as a suitable HDD power source, additional SATA power hardware is planned rather than assuming that connector can safely power another standard HDD.
+Stores active and completed downloads used by the media automation stack.
 
-The exact power arrangement should be verified before the 4 TB HDD is installed.
+### `games`
 
-## Bundled 1 TB HDD
+Provides storage for Pterodactyl game-server data.
 
-The OptiPlex 9020 also came with a 1 TB HDD.
+### `backups`
 
-Its eventual role has not yet been finalised.
+Reserved for homelab backup data.
 
-It should not be considered part of the storage architecture until its condition, model, and intended purpose are confirmed.
+### `shared`
 
-## Storage Design
+General-purpose shared storage.
 
-The homelab does not use TrueNAS or OpenMediaVault.
+---
 
-The current design is intentionally simpler:
+# NFS Storage
 
-- Proxmox remains the host operating system.
-- The 4 TB HDD will be mounted directly on `pve-2`.
-- The filesystem will be managed by the Proxmox host.
-- NFS will provide network access to other systems.
-- Future media services will consume storage over the network.
+pve-2 provides NFS exports for selected storage directories.
 
-This keeps storage management separate from the virtual machine storage used by Proxmox.
+Current exports are intentionally separated by purpose.
 
-## Hardware Expansion
+```text
+/mnt/homelab-data/media
+/mnt/homelab-data/downloads
+/mnt/homelab-data/games
+```
 
-Potential future hardware improvements include:
+The media and downloads shares are consumed by CT103 through pve-1.
 
-- Managed network switch
-- Additional HDD storage
-- Improved HDD power/connectivity
-- Larger or additional storage drives
-- Dedicated firewall/router hardware
-- VLAN-capable network infrastructure
+The games share is consumed directly by VM108.
 
-These are future improvements rather than requirements for the current deployment.
+The desktop also mounts the media share directly from pve-2.
 
-## Hardware Design Principles
+This arrangement avoids exporting the entire storage filesystem and allows different access policies to be applied to different datasets.
 
-The homelab hardware is being used to prioritise:
+---
 
-1. Reuse of existing hardware.
-2. Low power consumption where practical.
-3. Separation of infrastructure workloads.
-4. Simple and recoverable storage architecture.
-5. Incremental expansion rather than purchasing a dedicated NAS immediately.
+## Storage Permissions
 
-The 9020's additional compute resources are currently being used for Pterodactyl and will later provide bulk storage.
+The media and downloads shares use the dedicated:
+
+```text
+User: mediastack
+UID:  999
+GID:  990
+```
+
+The corresponding directories are owned by:
+
+```text
+999:990
+```
+
+and use group inheritance permissions appropriate for shared media-stack access.
+
+NFS exports use `all_squash` with the `mediastack` UID/GID for the media and downloads shares.
+
+The games export uses a separate configuration with `root_squash`.
+
+---
+
+# Pterodactyl VM
+
+pve-2 hosts VM108:
+
+```text
+VMID:     108
+Hostname: pterodactyl
+IP:       192.168.20.111
+OS:       Debian 13
+```
+
+VM108 has:
+
+```text
+vCPU:      6
+RAM:       12 GB
+Disk:      40 GB virtual disk
+```
+
+The VM runs:
+
+* Pterodactyl Panel
+* Wings
+* Docker
+* MariaDB
+* Redis
+* Nginx
+* PHP-FPM
+
+The VM also connects directly to the homelab's NFS games share.
+
+---
+
+# Networking Hardware
+
+The current homelab network is based around the existing home router.
+
+```text
+LAN:     192.168.20.0/24
+Gateway: 192.168.20.1
+```
+
+The homelab currently does not use a dedicated managed switch or VLAN infrastructure.
+
+A managed switch is planned for future expansion.
+
+Potential future improvements include:
+
+* Managed switching
+* VLAN segmentation
+* Dedicated firewall/router
+* Separate server, management, client and IoT networks
+
+These changes have not yet been deployed.
+
+---
+
+# Desktop System
+
+The primary desktop used to administer the homelab is:
+
+```text
+Hostname: RobynPC
+OS:       Arch Linux
+Interface: enp5s0
+MAC:      d4:5d:64:d7:d7:59
+IP:       192.168.20.102
+```
+
+The desktop receives its address through DHCP with a reservation for `192.168.20.102`.
+
+It mounts the homelab media storage directly from pve-2 using NFS.
+
+---
+
+# Hardware Roles
+
+The current physical architecture can be summarised as:
+
+```text
+                         ┌─────────────────────┐
+                         │       Router        │
+                         │    192.168.20.1     │
+                         └──────────┬──────────┘
+                                    │
+                     ┌──────────────┴──────────────┐
+                     │                             │
+              ┌──────▼──────┐               ┌──────▼──────┐
+              │    pve-1    │               │    pve-2    │
+              │ OptiPlex3060│               │ OptiPlex9020│
+              │ .100        │               │ .101        │
+              └──────┬──────┘               └──────┬──────┘
+                     │                             │
+              Proxmox guests                Proxmox + storage
+                                                   │
+                                             ┌─────▼─────┐
+                                             │   4 TB    │
+                                             │ WD Blue   │
+                                             └───────────┘
+```
+
+---
+
+# Hardware Expansion
+
+Future hardware changes may include:
+
+* Additional storage drives
+* A dedicated NAS/storage system if required
+* Managed network switching
+* Additional RAM
+* UPS protection
+* Dedicated firewall/router hardware
+* Additional compute nodes
+
+Any future hardware should be documented here once it is actually deployed.
+
+---
+
+# Hardware Philosophy
+
+The homelab prioritises:
+
+1. Reusing existing hardware where practical
+2. Low power consumption
+3. Simple maintenance
+4. Service isolation
+5. Expandability
+6. Reliable storage
+7. Clear separation between compute and bulk storage
+
+The two-node Proxmox architecture allows infrastructure services and workloads to be distributed between the two physical systems while keeping the environment relatively simple.
