@@ -30,7 +30,7 @@ The current stack consists of:
 | Prowlarr     | 9696 | Indexer management            |
 | Sonarr       | 8989 | TV and anime management       |
 | Radarr       | 7878 | Movie management              |
-| Bazarr       | 6767 | Subtitle management           |
+| Bazarr+      | 6767 | Subtitle management           |
 | Seerr        | 5055 | Media request management      |
 | FlareSolverr | 8191 | Cloudflare challenge handling |
 
@@ -219,6 +219,27 @@ docker compose logs -f <service>
 
 ---
 
+## Gluetun / qBittorrent networking
+
+qBittorrent is routed through Gluetun using Docker's shared network namespace:
+
+```text
+qBittorrent
+    │
+    │ network_mode: service:gluetun
+    ▼
+Gluetun
+    │
+    ├── VPN tunnel
+    └── host port 8080
+```
+
+qBittorrent does not publish ports independently. Port `8080` is published by Gluetun, and the WebUI is reachable on CT103 at `192.168.20.93:8080`.
+
+The VPN provider credentials are intentionally omitted from this documentation.
+
+---
+
 # qBittorrent
 
 qBittorrent is the download client.
@@ -355,7 +376,7 @@ Sonarr is configured to:
 
 # Bazarr
 
-Bazarr manages subtitles.
+Bazarr+ manages subtitles.
 
 ```text
 Port: 6767
