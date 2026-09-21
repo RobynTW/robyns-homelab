@@ -74,15 +74,20 @@ NFS is used to provide the required storage shares to other systems.
 
 The media stack runs on CT103 and includes:
 
-* qBittorrent
-* Prowlarr
-* Sonarr
-* Radarr
-* Bazarr
-* Seerr
-* FlareSolverr
+- qBittorrent
+- Gluetun
+- Prowlarr
+- Sonarr
+- Radarr
+- Bazarr+
+- Seerr
+- FlareSolverr
 
 Jellyfin runs separately on CT102 and uses the shared media storage.
+
+qBittorrent uses Gluetun as its Docker network namespace so its network traffic is routed through the configured VPN.
+
+Bazarr was migrated to Bazarr+ to provide additional subtitle Provider Hub integrations.
 
 ---
 
@@ -90,8 +95,8 @@ Jellyfin runs separately on CT102 and uses the shared media storage.
 
 The homelab uses:
 
-* **Beszel** for system and resource monitoring
-* **Uptime Kuma** for service availability monitoring
+- **Beszel** for system and resource monitoring
+- **Uptime Kuma** for service availability monitoring
 
 Monitoring coverage is still being expanded as the infrastructure develops.
 
@@ -101,11 +106,11 @@ Monitoring coverage is still being expanded as the infrastructure develops.
 
 Pterodactyl runs on VM108 using:
 
-* Pterodactyl Panel
-* Wings
-* Docker
-* MariaDB
-* Redis
+- Pterodactyl Panel
+- Wings
+- Docker
+- MariaDB
+- Redis
 
 Game-server storage is provided through the dedicated NFS `games` share.
 
@@ -121,24 +126,25 @@ https://panel.robynshomelab.dev
 
 Detailed documentation is organised numerically in [`docs/`](docs/):
 
-| File                | Topic       |
-| ------------------- | ----------- |
-| `00-overview.md`    | Overview    |
-| `01-hardware.md`    | Hardware    |
-| `02-network.md`     | Network     |
-| `03-proxmox.md`     | Proxmox     |
-| `04-pihole.md`      | Pi-hole     |
-| `05-unbound.md`     | Unbound     |
-| `06-cloudflare.md`  | Cloudflare  |
-| `07-nginx.md`       | Nginx       |
-| `08-certbot.md`     | Certbot     |
-| `09-netbird.md`     | NetBird     |
-| `10-jellyfin.md`    | Jellyfin    |
-| `11-beszel.md`      | Beszel      |
-| `12-uptime-kuma.md` | Uptime Kuma |
-| `13-media-stack.md` | Media stack |
-| `14-pterodactyl.md` | Pterodactyl |
-| `15-ddns.md`        | Dynamic DNS |
+| File                        | Topic                    |
+| --------------------------- | ------------------------ |
+| `00-overview.md`          | Overview                 |
+| `01-hardware.md`         | Hardware                 |
+| `02-network.md`          | Network                  |
+| `03-proxmox.md`          | Proxmox                  |
+| `04-pihole.md`           | Pi-hole                  |
+| `05-unbound.md`           | Unbound                  |
+| `06-cloudflare.md`       | Cloudflare               |
+| `07-nginx.md`            | Nginx                    |
+| `08-certbot.md`          | Certbot                  |
+| `09-netbird.md`          | NetBird                  |
+| `10-jellyfin.md`         | Jellyfin                 |
+| `11-beszel.md`           | Beszel                   |
+| `12-uptime-kuma.md`      | Uptime Kuma              |
+| `13-media-stack.md`      | Media stack              |
+| `14-pterodactyl.md`      | Pterodactyl              |
+| `15-ddns.md`             | Dynamic DNS              |
+| `16-gluetun-bazarr-plus.md` | Gluetun / Bazarr+       |
 
 ---
 
@@ -148,11 +154,11 @@ The core homelab infrastructure is operational.
 
 Remaining work primarily consists of:
 
-* Firewall hardening
-* Monitoring expansion
-* Backup improvements
-* Additional service configuration
-* Stability testing
+- Firewall hardening
+- Monitoring expansion
+- Backup improvements
+- Additional service configuration
+- Stability testing
 
 Once the remaining work is complete and the environment has proven stable, the architecture diagram will be rebuilt to reflect the final topology.
 
