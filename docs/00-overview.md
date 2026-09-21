@@ -355,7 +355,7 @@ The stack uses Docker and consists of:
 * FlareSolverr
 * Sonarr
 * Radarr
-* Bazarr
+* Bazarr+
 * Seerr
 
 The general workflow is:
