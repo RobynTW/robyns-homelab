@@ -484,6 +484,22 @@ The current documented design is based on:
 
 ---
 
+
+## Verified DNS routing
+
+CT101 is also the NetBird routing peer for Pi-hole DNS. Remote clients, including the iPhone used during testing, can send DNS traffic through CT101 to CT100 at `192.168.20.99:53`. Packet capture confirmed general DNS traffic reaching Pi-hole through this path.
+
+This confirms the intended remote-client DNS path:
+
+```text
+NetBird client
+     ↓
+CT101 NetBird routing peer
+     ↓
+CT100 Pi-hole / Unbound
+192.168.20.99:53
+```
+
 # Operational Principles
 
 The current NetBird deployment follows these principles:
