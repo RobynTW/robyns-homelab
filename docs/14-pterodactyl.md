@@ -1,77 +1,92 @@
 # Pterodactyl
 
-Pterodactyl provides game server management through a web-based Panel and Wings daemon.
-
-The deployment runs independently on VM108 rather than inside the Proxmox LXC media stack.
+Documentation for the Pterodactyl game-server infrastructure running on VM108 on `pve-2`.
 
 ---
 
-# Virtual Machine
+## Overview
+
+Pterodactyl provides the game-server management platform for the homelab.
+
+The deployment consists of:
+
+* Pterodactyl Panel
+* Pterodactyl Wings
+* Docker
+* MariaDB
+* Redis
+* NetBird
+* Minecraft game-server infrastructure
+
+The Panel and Wings run together on a dedicated Debian VM rather than an LXC. This keeps Docker and Wings isolated from the Proxmox host and avoids the additional nesting considerations associated with running Docker inside an LXC.
+
+The current deployment is operational.
+
+---
+
+## Host and VM
+
+### Proxmox host
+
+Pterodactyl runs on:
 
 ```text
-VMID:     108
-Hostname: pterodactyl
-IP:       192.168.20.111
-Host:     pve-2
-OS:       Debian 13 Trixie
-vCPU:     6
-RAM:      12 GB
-Disk:     40 GB virtual disk
+Host: pve-2
+IP:   192.168.20.101
 ```
 
-The VM also has access to the physical game-storage NFS share provided by pve-2.
+`pve-2` is the Dell OptiPlex 9020 SFF.
 
----
-
-# Architecture
+The Pterodactyl VM is:
 
 ```text
-                         User
-                           │
-                           ▼
-                 panel.robynshomelab.dev
-                           │
-                           ▼
-                    Nginx / CT106
-                    192.168.20.94
-                           │
-                           ▼
-                  Pterodactyl Panel
-                    VM108 / .111
-                           │
-                           ▼
-                         Wings
-                    VM108 / .111
-                           │
-                           ▼
-                   Docker containers
-                           │
-                           ▼
-                     Game servers
+VMID:       108
+Hostname:   pterodactyl
+LAN IP:     192.168.20.111
 ```
 
-The Panel and Wings daemon run on the same VM but perform different roles.
+### VM resources
+
+Current VM configuration:
+
+| Resource              | Configuration   |
+| --------------------- | --------------- |
+| vCPU                  | 6               |
+| RAM                   | 12 GB           |
+| Disk                  | 40 GB local-lvm |
+| Machine               | Q35             |
+| Firmware              | OVMF / UEFI     |
+| Network               | VirtIO          |
+| QEMU Guest Agent      | Enabled         |
+| NUMA                  | Disabled        |
+| Ballooning            | Disabled        |
+| Nested virtualisation | Disabled        |
+
+The VM runs Debian 13 Trixie.
+
+Current kernel:
+
+```text
+6.12.107+deb13-amd64
+```
 
 ---
 
-# Software Stack
+## Installed Software
 
-The VM currently runs:
+The VM currently provides:
 
-| Component         | Version / Role        |
-| ----------------- | --------------------- |
-| Debian            | 13 Trixie             |
-| Docker Engine     | 29.8.0                |
-| containerd        | 2.3.5                 |
-| runc              | 1.5.1                 |
-| PHP               | 8.3.33                |
-| PHP-FPM           | 8.3.33                |
-| MariaDB           | 11.8.6                |
-| Redis             | Installed             |
-| Composer          | 2.10.3                |
-| Nginx             | Installed             |
-| Pterodactyl Panel | Production deployment |
-| Wings             | 1.13.3                |
+| Software          | Version / Configuration |
+| ----------------- | ----------------------- |
+| Docker Engine     | 29.8.0                  |
+| PHP               | 8.3.33                  |
+| MariaDB           | 11.8.6                  |
+| Redis             | Installed               |
+| Composer          | 2.10.3                  |
+| Nginx             | Installed               |
+| Pterodactyl Panel | Installed               |
+| Wings             | 1.13.3                  |
+| NetBird           | 0.78.1                  |
 
 ---
 
@@ -83,204 +98,63 @@ The Panel is installed at:
 /var/www/pterodactyl
 ```
 
-The application runs in production mode:
-
-```text
-APP_ENV=production
-APP_DEBUG=false
-```
-
-The application timezone is:
-
-```text
-Australia/Melbourne
-```
-
-The public application URL is:
+The configured application URL is:
 
 ```text
 https://panel.robynshomelab.dev
 ```
 
-The Panel uses the local MariaDB and Redis services on VM108.
+The Panel uses:
+
+* MariaDB database: `panel`
+* Redis for queue processing
+* Nginx/PHP-FPM
+
+The Panel itself is not directly exposed to the public internet from VM108.
 
 ---
 
-# Panel Database
+## Panel Reverse Proxy
 
-The Panel database is hosted locally on VM108 using MariaDB.
-
-The database is used for Pterodactyl application state, including:
-
-* Users
-* Servers
-* Nodes
-* Locations
-* Allocations
-* Application configuration
-* Other Panel metadata
-
-Database credentials should not be stored in this documentation.
-
----
-
-# Redis
-
-Redis provides the Panel's queue/cache functionality.
-
-The Panel is configured to use Redis for its queue backend.
-
-Redis is local to VM108.
-
----
-
-# Panel Setup
-
-The initial Panel deployment has been completed.
-
-The following setup tasks have been performed:
-
-* Application installed
-* Production environment configured
-* Database created
-* Database migrations completed
-* Database seeders completed
-* Administrator account created
-* Storage link created
-* Application URL configured
-* HTTPS configured through Nginx
-* Wings node configured
-* Wings daemon connected to the Panel
-
----
-
-# Nginx and HTTPS
-
-The Panel is accessed through:
+The public Panel hostname is handled by the existing Nginx reverse proxy on CT106.
 
 ```text
-https://panel.robynshomelab.dev
-```
-
-The request path is:
-
-```text
-Client
-  │
-  ▼
-DNS
-  │
-  ▼
+CT106
 192.168.20.94
-  │
-  ▼
-Nginx / CT106
-  │
-  ▼
-192.168.20.111:80
-  │
-  ▼
-Pterodactyl Panel
 ```
 
-Nginx handles TLS termination.
-
-The Panel backend itself listens over HTTP on the internal network.
-
----
-
-# Cloudflare DNS
-
-Cloudflare is authoritative for:
+The traffic path is:
 
 ```text
-robynshomelab.dev
-```
-
-The public Panel hostname is retained in Cloudflare DNS:
-
-```text
+Internet / LAN / NetBird
+          │
+          ▼
 panel.robynshomelab.dev
-```
-
-The public record is DNS-only.
-
-It is retained primarily for:
-
-* Public hostname consistency
-* DNS-01 certificate validation
-* Future access requirements
-
-The presence of a public DNS record does **not** mean the Panel is directly reachable from the Internet.
-
-There is currently no router port forwarding for the Panel.
-
----
-
-# Internal DNS
-
-Pi-hole provides the internal split-DNS record:
-
-```text
-panel.robynshomelab.dev
-    ↓
+          │
+          ▼
+CT106 Nginx
 192.168.20.94
-```
-
-This allows LAN clients to use the same hostname while traffic remains inside the homelab.
-
----
-
-# NetBird Access
-
-The Panel can be accessed remotely through NetBird.
-
-The remote path is:
-
-```text
-NetBird client
-      │
-      ▼
-CT101
-192.168.20.97
-      │
-      ▼
-192.168.20.94
-      │
-      ▼
-Nginx / CT106
-      │
-      ▼
+          │
+          ▼
+Pterodactyl VM
 192.168.20.111
-      │
-      ▼
+          │
+          ▼
 Pterodactyl Panel
 ```
 
-CT101 advertises the Nginx address:
+The existing CT106 Nginx configuration should be preserved.
 
-```text
-192.168.20.94/32
-```
-
-The Panel therefore does not need to be directly exposed to the Internet.
+Minecraft traffic does **not** use this Nginx reverse proxy because Minecraft is a raw TCP service rather than an HTTP application.
 
 ---
 
-# Wings
+# Pterodactyl Wings
 
-Wings is the Pterodactyl daemon responsible for actually running game servers.
-
-Binary:
+Wings is installed at:
 
 ```text
 /usr/local/bin/wings
-```
-
-Version:
-
-```text
-1.13.3
 ```
 
 Configuration:
@@ -289,541 +163,714 @@ Configuration:
 /etc/pterodactyl/config.yml
 ```
 
-The Wings configuration file is protected with:
+The configuration file is protected with mode `600`.
 
-```text
-chmod 600 /etc/pterodactyl/config.yml
-```
-
-because it contains sensitive configuration.
-
----
-
-# Wings systemd Service
-
-Wings is managed by systemd.
-
-Service:
+Wings runs as a systemd service:
 
 ```text
 /etc/systemd/system/wings.service
 ```
 
-Check the service:
-
-```bash
-systemctl status wings
-```
-
-Start:
-
-```bash
-systemctl start wings
-```
-
-Stop:
-
-```bash
-systemctl stop wings
-```
-
-Restart:
-
-```bash
-systemctl restart wings
-```
-
-Enable at boot:
-
-```bash
-systemctl enable wings
-```
-
-View logs:
-
-```bash
-journalctl -u wings
-```
-
-Follow live logs:
-
-```bash
-journalctl -u wings -f
-```
-
----
-
-# Pterodactyl Node
-
-The configured node is:
-
-```text
-Name:     pterodactyl
-Location: Home
-```
-
-The node is configured as private.
-
-Node FQDN:
-
-```text
-wings.robynshomelab.dev
-```
-
-SSL is enabled.
-
-The node is not configured as being behind a proxy.
-
----
-
-# Wings Network
-
-The Wings daemon uses:
+Current service configuration includes:
 
 ```text
 Daemon port: 8080
 SFTP port:   2022
 ```
 
-The SFTP service allows appropriate Pterodactyl server-file management.
-
-The daemon port is used for Panel ↔ Wings communication.
-
----
-
-# Game Server Storage
-
-Game server data is stored under:
+Game-server data is stored under:
 
 ```text
 /var/lib/pterodactyl/volumes
 ```
 
-This is the Wings daemon directory for server volumes.
-
-The VM also mounts the dedicated NFS `games` share from pve-2.
-
-The architecture is:
-
-```text
-pve-2
-  │
-  ▼
-/mnt/homelab-data/games
-  │
-  │ NFS
-  ▼
-VM108
-  │
-  ▼
-Pterodactyl game storage
-```
-
-The NFS share has been tested successfully by creating a file from VM108.
+Wings manages the game-server containers through Docker.
 
 ---
 
-# Game Server Containers
+# Docker
 
-Pterodactyl uses Docker containers for individual game servers.
+Pterodactyl uses Docker to isolate individual game servers.
 
-The architecture is:
+The Pterodactyl Docker network is managed by Wings/Pterodactyl rather than being manually recreated as part of normal administration.
 
-```text
-Wings
- │
- ├── Docker container
- │     └── Game server A
- │
- ├── Docker container
- │     └── Game server B
- │
- └── Docker container
-       └── Game server C
-```
+Docker is therefore responsible for translating the Pterodactyl allocations into the corresponding container networking.
 
-Each Pterodactyl server is managed independently through the Panel.
+Do not manually modify Docker's generated NAT rules unless there is a specific networking problem requiring it.
 
 ---
 
-# Resource Allocation
+# Storage
 
-The current node configuration provides:
+The Pterodactyl VM has its own local system disk for the operating system and Pterodactyl software.
 
-```text
-Memory:  10240 MiB
-Disk:    30720 MiB
-```
+Game-server storage is provided through the homelab's storage infrastructure.
 
-The VM itself has:
+The 4 TB WD Blue HDD is owned by `pve-2` and is mounted by the Proxmox host as:
 
 ```text
-6 vCPU
-12 GB RAM
+/mnt/homelab-data
 ```
 
-The available game-server resources therefore need to remain within the VM's physical allocation.
+The storage hierarchy includes:
+
+```text
+/mnt/homelab-data/
+├── media/
+├── downloads/
+├── games/
+├── backups/
+└── shared/
+```
+
+The `games` storage is exported over NFS and is mounted by VM108 for game-server storage where required.
+
+This keeps the large game-server storage separate from the VM's relatively small local system disk.
 
 ---
 
-# Node and Allocation Management
+# NetBird
 
-The Panel controls:
-
-* Nodes
-* Locations
-* Allocations
-* Servers
-* Users
-* Resource limits
-* Docker images
-* Startup commands
-* Environment variables
-
-Wings executes the configuration received from the Panel.
-
----
-
-# Panel ↔ Wings Relationship
-
-The Panel and Wings have separate responsibilities:
+VM108 runs its own independent NetBird peer.
 
 ```text
-Pterodactyl Panel
-├── Web interface
-├── User management
-├── Server configuration
-├── Node management
-└── API
+NetBird IP:
+100.113.229.169/16
 
-        │
-        │ API / daemon communication
-        ▼
-
-Wings
-├── Docker management
-├── Server lifecycle
-├── Console
-├── File operations
-└── Resource enforcement
+NetBird hostname:
+pterodactyl.netbird.cloud
 ```
 
-If the Panel is unavailable, existing game servers managed by Wings may continue running, but Panel-based management will be unavailable.
-
-If Wings is unavailable, the Panel may remain accessible but game-server management and execution will be affected.
-
----
-
-# NetBird Configuration
-
-VM108 runs its own NetBird client independently from CT101.
-
-Current NetBird version:
+NetBird version:
 
 ```text
 0.78.1
 ```
 
-NetBird FQDN:
+The VM is an independent NetBird peer.
+
+It should **not** be treated as being routed through CT101. CT101 and VM108 have separate NetBird identities and connections.
+
+---
+
+## NetBird connection persistence
+
+The NetBird service runs through systemd:
 
 ```text
-pterodactyl.netbird.cloud
+netbird.service
 ```
 
-NetBird address:
+The service is enabled and intended to start automatically with the VM.
+
+A systemd drop-in is configured with:
+
+```ini
+Environment="NB_LAZY_CONN=off"
+```
+
+This was part of the work performed to improve persistent connectivity.
+
+---
+
+# Minecraft Server
+
+The first deployed game server on Pterodactyl is Minecraft Java Edition.
+
+Current server:
 
 ```text
-100.113.229.169/16
+Minecraft: 1.21.1
+Protocol: 767
 ```
 
-CT101 and VM108 are separate NetBird peers.
-
-The VM does not depend on CT101 to function as a NetBird peer.
-
----
-
-# Current Remote Access Architecture
-
-The Panel uses CT101 as a routed path to Nginx:
+The server uses port:
 
 ```text
-Remote device
-     │
-     ▼
-NetBird
-     │
-     ▼
-CT101
-100.113.51.59
-     │
-     ▼
-192.168.20.94
-     │
-     ▼
-Nginx
-     │
-     ▼
-192.168.20.111
+25565
 ```
 
-VM108's own NetBird peer is separate and can be used for direct private access where appropriate.
+The Pterodactyl allocation includes:
+
+```text
+192.168.20.111:25565
+100.113.229.169:25565
+```
+
+The Docker container is published on both addresses.
+
+The final public Minecraft service does not require the home router to forward port `25565`.
 
 ---
 
-# Firewall Status
+# Minecraft Networking
 
-The VM's final firewall hardening has not yet been completed.
+The final Minecraft networking architecture uses NetBird Reverse Proxy.
 
-The intended firewall implementation is **nftables** rather than UFW.
+The public endpoint is:
 
-This is important because Pterodactyl relies heavily on Docker networking, and Docker can interact with firewall rules and packet forwarding.
-
-Firewall changes should therefore be tested carefully against:
-
-* Panel access
-* Wings ↔ Panel communication
-* Docker networking
-* Game-server networking
-* SFTP
-* NFS
-* NetBird
-
-Do not assume a generic UFW configuration is appropriate for this VM.
-
----
-
-# Troubleshooting
-
-## Check Panel
-
-Check the application directory:
-
-```bash
-cd /var/www/pterodactyl
+```text
+minecraft.robynshomelab.dev:17161
 ```
 
-Check Nginx:
+The NetBird Reverse Proxy service forwards TCP traffic to:
 
-```bash
-nginx -t
-systemctl status nginx
+```text
+100.113.229.169:25565
 ```
 
----
+The traffic is then DNATed from the NetBird interface to the VM's LAN address.
 
-## Check PHP-FPM
+The final path is:
 
-```bash
-systemctl status php8.3-fpm
-```
-
-Check PHP version:
-
-```bash
-php -v
+```text
+Minecraft Client
+      │
+      ▼
+minecraft.robynshomelab.dev:17161
+      │
+      ▼
+NetBird Reverse Proxy
+      │
+      ▼
+NetBird peer
+pterodactyl
+100.113.229.169:25565
+      │
+      ▼
+wt0
+      │
+      ▼
+iptables DNAT
+      │
+      ▼
+192.168.20.111:25565
+      │
+      ▼
+Docker / Pterodactyl
+      │
+      ▼
+Minecraft 1.21.1
 ```
 
 ---
 
-## Check MariaDB
+# Minecraft DNAT
+
+The NetBird address is not the address where the Minecraft container ultimately listens on the LAN.
+
+The following DNAT rule translates incoming TCP traffic from the NetBird interface:
 
 ```bash
-systemctl status mariadb
+/usr/sbin/iptables -t nat -I PREROUTING 1 \
+  -i wt0 \
+  -p tcp \
+  -d 100.113.229.169 \
+  --dport 25565 \
+  -j DNAT \
+  --to-destination 192.168.20.111:25565
 ```
+
+This rule is persisted using:
+
+```text
+netfilter-persistent
+```
+
+The persistent rule is:
+
+```text
+-A PREROUTING -d 100.113.229.169/32 -i wt0 -p tcp -m tcp --dport 25565 -j DNAT --to-destination 192.168.20.111:25565
+```
+
+### Important command-path note
+
+The root shell on VM108 does not currently include `/usr/sbin` in its normal `$PATH`.
+
+Therefore, use:
+
+```text
+/usr/sbin/iptables
+/usr/sbin/nft
+```
+
+rather than:
+
+```text
+iptables
+nft
+```
+
+The NAT table is managed through the `iptables-nft` compatibility layer.
+
+Do not directly modify the corresponding nftables NAT table unless there is a specific reason to do so.
 
 ---
 
-## Check Redis
+# Minecraft Public Access Problem
+
+The original attempt to expose Minecraft used NetBird's CLI exposure feature:
 
 ```bash
-systemctl status redis
+netbird expose --protocol tcp 25565
 ```
 
-The exact service name may be verified with:
+This creates a temporary public reverse-proxy service.
 
-```bash
-systemctl list-units --type=service | grep -i redis
-```
+Several temporary endpoints were created during testing, including:
 
----
-
-## Check Wings
-
-```bash
-systemctl status wings
-```
-
-Then inspect:
-
-```bash
-journalctl -u wings -n 100 --no-pager
-```
-
----
-
-## Check Docker
-
-```bash
-docker info
+```text
+upokwfkzqzjy.eu1.netbird.services:29387
 ```
 
 and:
 
-```bash
-docker ps
+```text
+kkvy1yzwqnxv.eu1.netbird.services:46767
+```
+
+These endpoints were capable of connecting to Minecraft.
+
+However, the connection behaviour was intermittent.
+
+A connection could:
+
+1. Successfully connect to Minecraft.
+2. Immediately fail with `connection refused`.
+3. Work again later without changes to Minecraft, Docker, Pterodactyl or the local network.
+
+This initially made it unclear whether the problem was caused by:
+
+* Minecraft
+* Docker
+* Pterodactyl
+* Wings
+* NetBird
+* NAT
+* the public NetBird proxy
+
+---
+
+# Diagnosis
+
+The Minecraft server itself was confirmed to be healthy.
+
+A direct local connection to:
+
+```text
+192.168.20.111:25565
+```
+
+succeeded.
+
+The Minecraft protocol status handshake returned:
+
+```text
+Minecraft 1.21.1
+Protocol 767
+```
+
+The NetBird interface was also confirmed to receive the connection attempts.
+
+Most importantly, the DNAT rule's packet counters increased during failed public connection attempts.
+
+This proved that the failed connections were reaching:
+
+```text
+wt0
+```
+
+and entering the DNAT path.
+
+Therefore, the problem was **not a missing DNAT rule** and was not caused by Minecraft failing to listen on the requested port.
+
+---
+
+# Temporary NetBird Exposure Behaviour
+
+Further testing showed that the temporary `kkvy` endpoint could resolve through multiple public NetBird proxy addresses.
+
+Some connection attempts were accepted while others were refused.
+
+The same temporary endpoint could also successfully complete a full Minecraft status handshake.
+
+This established that:
+
+* Minecraft was working.
+* Docker was working.
+* Pterodactyl was working.
+* The VM's NetBird connection was working.
+* The DNAT path was working.
+* The intermittent behaviour was associated with the ephemeral public NetBird exposure path.
+
+The exact internal NetBird mechanism responsible for the intermittent behaviour was not conclusively established.
+
+It should therefore **not** be documented as confirmed rate limiting, DDoS protection, connection throttling, or another specific NetBird feature.
+
+The verified conclusion is simply that the temporary `netbird expose` path was unsuitable as the permanent Minecraft exposure mechanism.
+
+---
+
+# Permanent NetBird Reverse Proxy
+
+The final solution was to use a permanent NetBird Reverse Proxy service rather than the temporary CLI exposure.
+
+A dedicated custom domain was created:
+
+```text
+minecraft.robynshomelab.dev
+```
+
+The custom domain was verified successfully by NetBird.
+
+NetBird required the following wildcard DNS verification record:
+
+```text
+*.minecraft.robynshomelab.dev
+CNAME → eu1.netbird.services
+```
+
+The record was configured through Cloudflare as DNS-only.
+
+NetBird then provided the permanent Minecraft service.
+
+Final service:
+
+```text
+Domain:
+minecraft.robynshomelab.dev
+
+Public port:
+17161
+
+Protocol:
+TCP
+
+Backend:
+100.113.229.169:25565
+```
+
+The final client connection address is:
+
+```text
+minecraft.robynshomelab.dev:17161
 ```
 
 ---
 
-## Check NFS
+# Minecraft Verification
 
-```bash
-findmnt
+The permanent endpoint was tested using a raw Minecraft protocol status handshake.
+
+The endpoint returned:
+
+```json
+{
+  "version": {
+    "name": "1.21.1",
+    "protocol": 767
+  },
+  "enforcesSecureChat": true,
+  "description": "A Minecraft Server",
+  "players": {
+    "max": 20,
+    "online": 1
+  }
+}
 ```
 
-Look specifically for the game-storage mount.
+This confirmed that the permanent NetBird endpoint was not merely accepting TCP connections; it was successfully forwarding Minecraft protocol traffic to the actual server.
 
-Test access:
+The endpoint was then tested using the actual Minecraft Java client.
 
-```bash
-ls -lah /mnt/homelab-data/games
+The server was successfully joined in-game.
+
+A packet capture on `wt0` also showed the permanent hostname:
+
+```text
+minecraft.robynshomelab.dev
 ```
 
-or the corresponding mounted path configured on VM108.
+arriving at VM108.
+
+This provided independent confirmation that traffic from the permanent public endpoint was reaching the Pterodactyl VM.
 
 ---
 
-# Panel Access Troubleshooting
+# Temporary Exposure Endpoints
 
-If:
+The following endpoints were created during troubleshooting:
+
+```text
+upokwfkzqzjy.eu1.netbird.services:29387
+kkvy1yzwqnxv.eu1.netbird.services:46767
+```
+
+These were temporary `netbird expose` sessions.
+
+They are **not part of the final infrastructure**.
+
+NetBird documents CLI `expose` sessions as temporary services that remain active only while the command is running; they are automatically removed when the session ends.
+
+The permanent dashboard Reverse Proxy service replaces these temporary endpoints.
+
+---
+
+# Cloudflare DNS
+
+Cloudflare remains authoritative for:
+
+```text
+robynshomelab.dev
+```
+
+The final Minecraft NetBird custom-domain configuration uses:
+
+```text
+*.minecraft.robynshomelab.dev
+CNAME → eu1.netbird.services
+```
+
+DNS is configured as DNS-only.
+
+The temporary records created during the troubleshooting process have been removed.
+
+In particular, the old Minecraft CNAME and SRV records associated with the previous reverse-proxy service are no longer required.
+
+The current NetBird Reverse Proxy service is the authoritative public path for Minecraft.
+
+---
+
+# Final Minecraft Architecture
+
+```text
+                         INTERNET
+                            │
+                            ▼
+          minecraft.robynshomelab.dev:17161
+                            │
+                            ▼
+                  NetBird Reverse Proxy
+                            │
+                            ▼
+                 pterodactyl.netbird.cloud
+                   100.113.229.169
+                            │
+                            ▼
+                         wt0
+                            │
+                            ▼
+                   iptables DNAT
+                            │
+                            ▼
+                  192.168.20.111:25565
+                            │
+                            ▼
+                       Docker
+                            │
+                            ▼
+                    Minecraft 1.21.1
+```
+
+No Minecraft port forwarding is configured on the home router.
+
+---
+
+# Security Model
+
+The Pterodactyl Panel and Wings management interfaces should remain private.
+
+The intended access model is:
+
+| Service            | Access                               |
+| ------------------ | ------------------------------------ |
+| Panel              | Nginx / LAN / NetBird                |
+| Wings API          | Private infrastructure               |
+| SFTP               | LAN / NetBird                        |
+| Minecraft          | Public through NetBird Reverse Proxy |
+| Other game servers | Only when explicitly exposed         |
+
+The Minecraft public endpoint exposes the game service only.
+
+It does not expose the Pterodactyl Panel or Wings management interfaces.
+
+The Pterodactyl VM should not be given unnecessary public ports.
+
+---
+
+# Firewall Considerations
+
+The final firewall configuration should account for Docker and Wings.
+
+Do not blindly apply a generic UFW configuration to the VM because Docker creates its own networking/NAT rules.
+
+The intended security policy remains:
+
+* Default-deny unnecessary inbound traffic.
+* Allow established/related connections.
+* Allow loopback.
+* SSH only from LAN/NetBird where possible.
+* Panel access through the existing reverse proxy.
+* Wings management interfaces kept private.
+* SFTP limited to LAN/NetBird where possible.
+* Game-server ports exposed only when required.
+* NetBird traffic permitted as required.
+* Docker networking left functional.
+
+Any future firewall hardening must preserve:
+
+```text
+wt0 → DNAT → 192.168.20.111:25565
+```
+
+for the Minecraft service.
+
+---
+
+# Current Status
+
+## Pterodactyl
+
+**DEPLOYED / VERIFIED**
+
+Panel:
 
 ```text
 https://panel.robynshomelab.dev
 ```
 
-does not work, check the dependency chain in order:
+VM:
 
 ```text
-DNS
- ↓
-192.168.20.94
- ↓
-Nginx
- ↓
-192.168.20.111:80
- ↓
-Pterodactyl Panel
- ↓
-PHP-FPM
- ↓
-MariaDB / Redis
+192.168.20.111
 ```
 
-For remote access, also verify:
+Wings:
 
 ```text
-NetBird
- ↓
-CT101
- ↓
-192.168.20.94
+1.13.3
+```
+
+Docker:
+
+```text
+29.8.0
 ```
 
 ---
 
-# Wings Troubleshooting
+## Minecraft
 
-If the Panel is accessible but Wings is offline:
+**DEPLOYED / VERIFIED**
+
+Server:
+
+```text
+Minecraft Java 1.21.1
+Protocol 767
+```
+
+Internal:
+
+```text
+192.168.20.111:25565
+```
+
+NetBird:
+
+```text
+100.113.229.169:25565
+```
+
+Public:
+
+```text
+minecraft.robynshomelab.dev:17161
+```
+
+Transport:
+
+```text
+TCP
+```
+
+---
+
+## NetBird
+
+**DEPLOYED / VERIFIED**
+
+VM108 NetBird:
+
+```text
+Version: 0.78.1
+IP:      100.113.229.169/16
+FQDN:    pterodactyl.netbird.cloud
+```
+
+Permanent Minecraft Reverse Proxy:
+
+```text
+minecraft.robynshomelab.dev:17161
+```
+
+Temporary `netbird expose` endpoints are no longer part of the architecture.
+
+---
+
+# Operational Notes
+
+### Do not remove the DNAT rule
+
+The DNAT rule is required for the current public Minecraft path.
+
+### Do not recreate the temporary CLI exposure
+
+There is no need to use:
 
 ```bash
-systemctl status wings
+netbird expose --protocol tcp 25565
 ```
 
-Then:
+for normal Minecraft access anymore.
 
-```bash
-journalctl -u wings -n 100 --no-pager
+That was a troubleshooting mechanism.
+
+### Do not move Minecraft to CT106 Nginx
+
+CT106 Nginx remains responsible for HTTP/HTTPS reverse proxying.
+
+Minecraft is a Layer-4 TCP service and is intentionally handled by NetBird Reverse Proxy.
+
+### Do not add router port forwarding
+
+The final design intentionally avoids forwarding TCP `25565` through the ISP router.
+
+### Preserve the existing Panel configuration
+
+The working:
+
+```text
+panel.robynshomelab.dev
 ```
 
-Check that Docker is operational:
+→ CT106 Nginx → VM108
 
-```bash
-systemctl status docker
-docker info
-```
-
-Also verify that the configured Wings endpoint and SSL settings match the Panel node configuration.
+architecture should remain unchanged.
 
 ---
 
-# Security Principles
+# Future Work
 
-The Pterodactyl deployment follows these principles:
+Potential future Pterodactyl work includes:
 
-* Panel is accessed through HTTPS
-* TLS is terminated by Nginx
-* No router port forwarding is currently configured
-* Internal DNS resolves the Panel hostname to Nginx
-* NetBird provides private remote access
-* Wings configuration is protected from other users
-* Game servers run in Docker containers
-* Firewall hardening will use nftables
-* Secrets are not stored in this documentation
+* Additional game servers.
+* Additional Pterodactyl allocations.
+* Monitoring game-server availability through Uptime Kuma.
+* Monitoring VM/Docker resources through Beszel.
+* Backup improvements for game-server data.
+* Firewall hardening.
+* Further testing of game-server access from external networks.
+* Integration with the eventual Homarr dashboard.
 
----
-
-# Current State
-
-The following components are deployed and operational:
-
-```text
-VM108
- ├── Debian 13
- ├── Docker
- ├── MariaDB
- ├── Redis
- ├── PHP-FPM
- ├── Nginx
- ├── Pterodactyl Panel
- ├── Wings
- ├── NetBird
- └── NFS game storage
-```
-
-The Panel is accessible through:
-
-```text
-https://panel.robynshomelab.dev
-```
-
-Wings is installed, enabled, and running.
-
-The Pterodactyl node is configured and connected to the Panel.
-
----
-
-# Future Improvements
-
-Potential future work includes:
-
-* Complete nftables firewall configuration
-* More comprehensive Wings monitoring
-* Game-server monitoring through Uptime Kuma/Beszel
-* Backup strategy for Panel data
-* Backup strategy for game-server data
-* Resource allocation tuning
-* Additional game-server deployments
-* Improved remote game-server networking
-* Further testing of direct NetBird access
-* Documenting individual game-server configurations as they are deployed
-
-Any future firewall or networking changes should preserve the current separation between:
-
-```text
-Panel
-Wings
-Docker
-NFS storage
-NetBird
-Nginx
-```
+The Minecraft networking implementation itself should now be considered **complete and stable**.
