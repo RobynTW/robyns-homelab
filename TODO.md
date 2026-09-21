@@ -15,9 +15,8 @@
 
 ## Priority 2 — Cleanup & Consolidation
 
-* [ ] Clean up README typo
-* [ ] Review README against the deployed topology
-* [ ] Review `docs/00–15` for outdated or planned-state wording
+* [x] Review README against the deployed topology
+* [x] Review `docs/00–16` for outdated or planned-state wording
 * [ ] Verify Pterodactyl documentation reflects Panel + Wings deployment
 * [ ] Verify NetBird documentation reflects the current routing and DNS configuration
 * [ ] Verify NFS documentation reflects the final per-share exports
