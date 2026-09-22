@@ -1,0 +1,218 @@
+- Infrastructure:
+    - PVE-1:
+        href: https://192.168.20.100:8006
+        description: Proxmox VE
+        icon: proxmox.png
+        widget:
+          type: proxmox
+          url: https://192.168.20.100:8006
+          username: REDACTED
+          password: REDACTED
+          node: pve-1
+          fields:
+            - vms
+            - lxc
+            - resources.cpu
+            - resources.mem
+
+    - PVE-2:
+        href: https://192.168.20.101:8006
+        description: Proxmox VE
+        icon: proxmox.png
+        widget:
+          type: proxmox
+          url: https://192.168.20.101:8006
+          username: REDACTED
+          password: REDACTED
+          node: pve-2
+          fields:
+            - vms
+            - lxc
+            - resources.cpu
+            - resources.mem
+- Network:
+
+    - Pi-hole:
+        href: https://pihole.robynshomelab.dev
+        description: DNS & Network Ad Blocking
+        icon: pi-hole.png
+        widget:
+          type: pihole
+          url: http://192.168.20.99:8080
+          version: 6
+          key: REDACTED
+
+    - NetBird:
+        href: https://netbird.robynshomelab.dev
+        description: Mesh VPN
+        icon: netbird.png
+
+    - Nginx:
+        href: https://status.robynshomelab.dev
+        description: Reverse Proxy
+        icon: nginx.png
+
+- Media:
+    - Jellyfin:
+        href: https://jellyfin.robynshomelab.dev
+        description: Media Server
+        icon: jellyfin.png
+        widget:
+          type: jellyfin
+          url: http://192.168.20.98:8096
+          key: REDACTED
+          enableBlocks: true
+
+    - Sonarr:
+        href: http://192.168.20.93:8989
+        description: TV Series Management
+        icon: sonarr.png
+        widget:
+          type: sonarr
+          url: http://192.168.20.93:8989
+          key: REDACTED
+
+    - Radarr:
+        href: http://192.168.20.93:7878
+        description: Movie Management
+        icon: radarr.png
+        widget:
+          type: radarr
+          url: http://192.168.20.93:7878
+          key: REDACTED
+
+    - Prowlarr:
+        href: http://192.168.20.93:9696
+        description: Indexer Management
+        icon: prowlarr.png
+        widget:
+          type: prowlarr
+          url: http://192.168.20.93:9696
+          key: REDACTED
+
+    - Bazarr:
+        href: http://192.168.20.93:6767
+        description: Subtitle Management
+        icon: bazarr.png
+
+    - qBittorrent:
+        href: http://192.168.20.93:8080
+        description: Download Client
+        icon: qbittorrent.png
+        widget:
+          type: qbittorrent
+          url: http://192.168.20.93:8080
+          username: REDACTED
+          password: REDACTED
+
+    - Seerr:
+        href: http://192.168.20.93:5055
+        description: Media Requests
+        icon: seerr.png
+        widget:
+          type: seerr
+          url: http://192.168.20.93:5055
+          key: REDACTED
+
+- Gaming:
+    - Pterodactyl:
+        href: https://panel.robynshomelab.dev
+        description: Game Server Management
+        icon: pterodactyl.png
+        widget:
+          type: pterodactyl
+          url: http://192.168.20.111
+          key: REDACTED
+
+- Monitoring:
+    - Beszel:
+        href: https://beszel.robynshomelab.dev
+        description: System Monitoring
+        icon: beszel.png
+        widget:
+          type: beszel
+          url: http://192.168.20.96:8090
+          username: REDACTED
+          password: REDACTED
+          version: 2
+
+    - Uptime Kuma:
+        href: https://status.robynshomelab.dev/status/homelab
+        description: Service Monitoring
+        icon: uptime-kuma.png
+        widget:
+          type: uptimekuma
+          url: http://192.168.20.95:3001
+          slug: homelab
+
+    - PVE-1:
+        href: https://beszel.robynshomelab.dev
+        description: Proxmox Host
+        icon: proxmox.png
+        widget:
+          type: customapi
+          url: http://192.168.20.100:61209/stats
+          refreshInterval: 10000
+          display: list
+          mappings:
+            - field: cpu
+              label: CPU
+              format: number
+              suffix: "%"
+            - field: memory
+              label: RAM
+              format: number
+              suffix: "%"
+            - field: swap
+              label: Swap
+              format: number
+              suffix: "%"
+            - field: temperature
+              label: Temp
+              format: number
+              suffix: "°C"
+            - field: root
+              label: Root
+              format: number
+              suffix: "%"
+            - field: uptime
+              label: Uptime
+              format: text
+
+    - PVE-2:
+        href: https://beszel.robynshomelab.dev
+        description: Proxmox Host
+        icon: proxmox.png
+        widget:
+          type: customapi
+          url: http://192.168.20.101:61209/stats
+          refreshInterval: 10000
+          display: list
+          mappings:
+            - field: cpu
+              label: CPU
+              format: number
+              suffix: "%"
+            - field: memory
+              label: RAM
+              format: number
+              suffix: "%"
+            - field: swap
+              label: Swap
+              format: number
+              suffix: "%"
+            - field: temperature
+              label: Temp
+              format: number
+              suffix: "°C"
+            - field: root
+              label: Root
+              format: number
+              suffix: "%"
+            - field: storage
+              label: Storage
+              format: number
+              suffix: "%"
+            - field: uptime
+              label: Uptime
+              format: text

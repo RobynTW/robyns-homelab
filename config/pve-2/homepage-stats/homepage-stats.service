@@ -1,0 +1,13 @@
+[Unit]
+Description=Homepage Proxmox Statistics API
+After=network-online.target glances.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/homepage-stats.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

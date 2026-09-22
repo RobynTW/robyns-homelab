@@ -1,0 +1,11 @@
+---
+# For configuration options and examples, please see:
+# https://gethomepage.dev/configs/settings/
+
+iconStyle: theme
+background:
+  image: /images/homepage-background.jpg
+  blur: sm
+  saturate: 80
+  brightness: 50
+  opacity: 70

@@ -1,0 +1,6 @@
+# <file system> <mount point> <type> <options> <dump> <pass>
+/dev/pve/root / ext4 errors=remount-ro 0 1
+UUID=D498-A39C /boot/efi vfat defaults 0 1
+/dev/pve/swap none swap sw 0 0
+proc /proc proc defaults 0 0
+UUID=5ea1368a-7c7b-4fec-871d-537b8a8bf62b /mnt/homelab-data ext4 defaults 0 2

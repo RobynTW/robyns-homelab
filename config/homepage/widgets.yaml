@@ -1,0 +1,23 @@
+---
+- resources:
+    label: CPU
+    cpu: true
+
+- resources:
+    label: RAM
+    memory: true
+
+- resources:
+    label: Root
+    disk:
+      - /
+
+- resources:
+    label: Storage
+    disk:
+      - /mnt/homelab-data
+
+- logo:
+    icon: si-github
+    href: https://github.com/RobynTW/robyns-homelab
+    target: _blank

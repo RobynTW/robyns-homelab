@@ -1,0 +1,21 @@
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+
+    env_file:
+      - .env
+
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: 192.168.20.92:3000,homepage.robynshomelab.dev
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      - /opt/homepage/config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /mnt/homelab-data:/mnt/homelab-data:ro
+      - /opt/homepage/images:/app/public/images
+
+    restart: unless-stopped
