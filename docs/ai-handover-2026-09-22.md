@@ -192,3 +192,67 @@ Additional Minecraft/game-server work may occur before this sequence.
 - Preserve known-good configuration.
 - Do not recommend router port forwarding.
 - Never store secrets in documentation.
+
+
+## Rebuild configuration backup
+
+A rebuild-oriented configuration backup was completed on 2026-09-22 and pushed to the Git repository.
+
+The backup lives under:
+
+`config/`
+
+It is intended as a **rebuild blueprint**, not a complete backup of live application state. It contains the important system/service configuration needed to recreate the current homelab, including Proxmox host/network/storage configuration, LXC/VM configuration, Nginx, Certbot, NetBird systemd configuration, Jellyfin/Beszel/Uptime Kuma services, Media Stack Compose configuration, Homepage configuration/assets, and Pterodactyl/Wings configuration and firewall rules.
+
+Secret-bearing live files were deliberately excluded or sanitized. Examples include Homepage/Media Stack/Pterodactyl `.env` files, raw Pterodactyl Wings `config.yml`, NetBird private/auth state, Cloudflare credentials, ACME private/account keys, SSH private keys, application databases, and other runtime state. Sanitized `.env.example` and Pterodactyl configuration examples are included where useful.
+
+The configuration backup was pushed to `main` in commit:
+
+`cbec7f4`
+
+### How to use the configuration backup for a future rebuild
+
+The `config/` directory should be used as the starting point when rebuilding the homelab after a host failure, OS reinstall, or major rebuild.
+
+Recommended process:
+
+1. Clone the repository onto the replacement/admin machine:
+
+```bash
+git clone https://github.com/RobynTW/robyns-homelab.git
+cd robyns-homelab
+```
+
+2. Read `config/README.md` first. It describes the purpose and limitations of the backup and which secret/runtime files are intentionally absent.
+
+3. Recreate the Proxmox hosts and network/storage foundations from the corresponding files under:
+   - `config/pve-1/`
+   - `config/pve-2/`
+   - `config/pve-1/proxmox/`
+   - `config/pve-2/proxmox/`
+
+   Do not blindly copy configuration files over a newly installed system. Use them as the known-good reference, adapting interface names, disks, hostnames, IPs, and package versions if the replacement hardware or OS differs.
+
+4. Recreate each service using its corresponding configuration under `config/`. The directory names are intentionally grouped by service, for example:
+   - `config/nginx/`
+   - `config/netbird/`
+   - `config/beszel/`
+   - `config/uptime-kuma/`
+   - `config/homepage/`
+   - `config/mediastack/`
+   - `config/pterodactyl/`
+   - `config/jellyfin/`
+
+5. Restore secrets separately. The repository does **not** contain the live credentials required by several services. Re-enter those credentials from the user's secure password/secret storage and recreate required credential files in their documented paths. Never replace sanitized `REDACTED` values by committing real credentials to Git.
+
+6. Restore application data separately. Configuration files do not replace databases, media, Minecraft world data, Docker volumes, or other runtime/application state. Those require independent backups or fresh application setup.
+
+7. Reapply systemd services and drop-ins from the relevant configuration directories, then enable/start the services after verifying their paths and dependencies.
+
+8. Reapply firewall/NAT rules from the Pterodactyl configuration backup only after NetBird, Docker, the Minecraft server, and the relevant interfaces are present. Verify the current network topology before restoring rules.
+
+9. Recreate DNS/reverse-proxy/TLS integration after the underlying services are working. Do not assume WAN IPs, Cloudflare records, certificates, or ACME credentials remain valid after a rebuild.
+
+10. After the rebuild is operational, update the live configuration backup from the rebuilt systems and commit the changes so the repository once again reflects the known-good state.
+
+The key principle is: **Git stores the reproducible configuration blueprint; secure storage and independent backups provide secrets and application data.** A future rebuild should use both rather than treating the Git repository as a full bare-metal backup.
