@@ -594,4 +594,4 @@ v6 — Future network segmentation
 ```
 
 The exact versioning scheme may evolve as the homelab grows.
-\n\n---\n\n## Documentation Update — 2026-09-22\n\nCT107 is now the deployed Homepage dashboard. The former Homarr plan for VMID 107 is obsolete. Homepage 2.4.0, its service layout, monitoring integrations, custom Proxmox widgets, background, and GitHub widget are documented in `docs/17-homepage.md`.\n
+\n\n---\n\n## Documentation Update — 2026-09-22\n\nCT107 is now the deployed Homepage dashboard. The former Homepage plan for VMID 107 is obsolete. Homepage 2.4.0, its service layout, monitoring integrations, custom Proxmox widgets, background, and GitHub widget are documented in `docs/17-homepage.md`.\n
