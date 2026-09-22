@@ -40,3 +40,11 @@ It intentionally excludes live credentials and private state.
 - Runtime state
 
 Files ending in `.example` are sanitized templates intended for rebuilds.
+
+## Disaster recovery use
+
+If the homelab suffers a catastrophic failure, clone the repository and use this directory as the known-good configuration reference while rebuilding the infrastructure. Start with the Proxmox host configuration, networking, storage, and guest definitions, then recreate services using their corresponding configuration directories.
+
+Do not blindly copy files onto replacement systems. Verify hardware, disk names, network interfaces, OS/package versions, IP addressing, and dependencies first. Restore secrets separately from secure storage and restore application/runtime data from independent backups.
+
+For the full recovery sequence and current homelab context, see [`docs/ai-handover-2026-09-22.md`](../docs/ai-handover-2026-09-22.md).
