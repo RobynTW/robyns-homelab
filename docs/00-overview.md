@@ -62,7 +62,7 @@ Current guests:
 |  104 | `beszel`      | System monitoring               | `192.168.20.96` |
 |  105 | `uptime-kuma` | Service monitoring              | `192.168.20.95` |
 |  106 | `nginx`       | Nginx reverse proxy and Certbot | `192.168.20.94` |
-|  107 | —             | Reserved for Homarr             | —               |
+|  107 | `homepage`   | Homepage dashboard             | `192.168.20.92` |
 
 ### pve-2
 
@@ -530,7 +530,7 @@ It is intended for monitoring service availability and network-reachable endpoin
 | Uptime Kuma          | CT105    | `192.168.20.95`  | Deployed |
 | Nginx                | CT106    | `192.168.20.94`  | Deployed |
 | Certbot              | CT106    | `192.168.20.94`  | Deployed |
-| Homarr               | VMID 107 | —                | Reserved |
+| Homepage             | CT107    | `192.168.20.92`  | Deployed |
 | Pterodactyl Panel    | VM108    | `192.168.20.111` | Deployed |
 | Wings                | VM108    | `192.168.20.111` | Deployed |
 
@@ -543,7 +543,7 @@ The following components are still planned or under development:
 1. Finalise Pterodactyl game-server networking
 2. Harden VM108 firewall using nftables
 3. Expand monitoring to VM108, Wings, storage and game servers
-4. Deploy Homarr
+4. Homepage dashboard is deployed on CT107
 5. Further develop network segmentation
 6. Introduce managed switching
 7. Consider VLAN segmentation
@@ -594,3 +594,4 @@ v6 — Future network segmentation
 ```
 
 The exact versioning scheme may evolve as the homelab grows.
+\n\n---\n\n## Documentation Update — 2026-09-22\n\nCT107 is now the deployed Homepage dashboard. The former Homarr plan for VMID 107 is obsolete. Homepage 2.4.0, its service layout, monitoring integrations, custom Proxmox widgets, background, and GitHub widget are documented in `docs/17-homepage.md`.\n
