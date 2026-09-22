@@ -2,20 +2,20 @@
 
 Documentation and configuration notes for my personal homelab.
 
-The homelab is built around a two-node Proxmox cluster and currently hosts networking, storage, media, monitoring, and game-server infrastructure.
+The homelab is built around a two-node Proxmox cluster and currently hosts networking, storage, media, monitoring, a central Homepage dashboard, and game-server infrastructure.
 
-> **Note:** The architecture diagram is currently out of date. It will be rebuilt once the remaining infrastructure work is complete and the homelab has been stable for several months. The individual documentation files contain the current configuration.
+> **Documentation state:** Updated 2026-09-22. Individual documentation files describe the current deployed configuration. The architecture diagram is intentionally not yet treated as final and will be rebuilt after the infrastructure has remained stable for several months.
 
 ---
 
 ## Hardware
 
-| Host  | Hardware               | IP               |
-| ----- | ---------------------- | ---------------- |
-| pve-1 | Dell OptiPlex 3060     | `192.168.20.100` |
+| Host | Hardware | IP |
+| --- | --- | --- |
+| pve-1 | Dell OptiPlex 3060 | `192.168.20.100` |
 | pve-2 | Dell OptiPlex 9020 SFF | `192.168.20.101` |
 
-pve-2 also provides the primary 4TB HDD storage used by the homelab.
+pve-2 provides the primary 4TB HDD storage.
 
 ---
 
@@ -26,36 +26,37 @@ LAN:       192.168.20.0/24
 Router:    192.168.20.1
 ```
 
-Pi-hole provides internal DNS, with Unbound providing recursive DNS resolution.
+Pi-hole provides internal DNS and Unbound provides recursive DNS resolution.
 
 NetBird provides private remote access without router port forwarding.
 
-Cloudflare provides authoritative DNS for `robynshomelab.dev`.
+Cloudflare provides authoritative DNS and DNS-01 ACME validation.
 
-Nginx provides the central reverse proxy and TLS layer.
+Nginx on CT106 provides the central reverse proxy and TLS layer.
 
 ---
 
 ## Services
 
-|    ID | Hostname      | IP               | Service                  |
-| ----: | ------------- | ---------------- | ------------------------ |
-| CT100 | `pihole`      | `192.168.20.99`  | Pi-hole / Unbound / DDNS |
-| CT101 | `netbird`     | `192.168.20.97`  | NetBird routing          |
-| CT102 | `jellyfin`    | `192.168.20.98`  | Jellyfin                 |
-| CT103 | `mediastack`  | `192.168.20.93`  | Media stack              |
-| CT104 | `beszel`      | `192.168.20.96`  | Beszel                   |
-| CT105 | `uptime-kuma` | `192.168.20.95`  | Uptime Kuma              |
-| CT106 | `nginx`       | `192.168.20.94`  | Nginx / Certbot          |
-| VM108 | `pterodactyl` | `192.168.20.111` | Pterodactyl              |
+| ID | Hostname | IP | Service |
+| --- | --- | --- | --- |
+| CT100 | `pihole` | `192.168.20.99` | Pi-hole / Unbound / DDNS |
+| CT101 | `netbird` | `192.168.20.97` | NetBird routing |
+| CT102 | `jellyfin` | `192.168.20.98` | Jellyfin |
+| CT103 | `mediastack` | `192.168.20.93` | Media stack |
+| CT104 | `beszel` | `192.168.20.96` | Beszel |
+| CT105 | `uptime-kuma` | `192.168.20.95` | Uptime Kuma |
+| CT106 | `nginx` | `192.168.20.94` | Nginx / Certbot |
+| CT107 | `homepage` | `192.168.20.92` | Homepage dashboard |
+| VM108 | `pterodactyl` | `192.168.20.111` | Pterodactyl Panel / Wings |
 
-VM107 is currently reserved for a future Homarr deployment.
+CT107 is the former dashboard reservation and is now deployed as Homepage. It is an LXC, not a VM.
 
 ---
 
 ## Storage
 
-The primary storage is a 4TB WD Blue HDD in pve-2.
+The primary storage is a 4TB WD Blue HDD in pve-2:
 
 ```text
 /mnt/homelab-data/
@@ -66,13 +67,13 @@ The primary storage is a 4TB WD Blue HDD in pve-2.
 └── shared/
 ```
 
-NFS is used to provide the required storage shares to other systems.
+Selected storage is exported over NFS. Pterodactyl game-server workloads remain logically separate from general NAS/media storage.
 
 ---
 
 ## Media
 
-The media stack runs on CT103 and includes:
+CT103 runs:
 
 - qBittorrent
 - Gluetun
@@ -83,11 +84,9 @@ The media stack runs on CT103 and includes:
 - Seerr
 - FlareSolverr
 
-Jellyfin runs separately on CT102 and uses the shared media storage.
+qBittorrent uses Gluetun as its Docker network namespace. Bazarr+ retains the existing configuration and provides additional Provider Hub integrations.
 
-qBittorrent uses Gluetun as its Docker network namespace so its network traffic is routed through the configured VPN.
-
-Bazarr was migrated to Bazarr+ to provide additional subtitle Provider Hub integrations.
+Jellyfin runs separately on CT102.
 
 ---
 
@@ -95,77 +94,142 @@ Bazarr was migrated to Bazarr+ to provide additional subtitle Provider Hub integ
 
 The homelab uses:
 
-- **Beszel** for system and resource monitoring
-- **Uptime Kuma** for service availability monitoring
+- **Beszel** for system/resource monitoring
+- **Uptime Kuma** for service availability
 
-Monitoring coverage is still being expanded as the infrastructure develops.
+Beszel currently represents the major homelab hosts and services.
+
+Uptime Kuma has the curated status page:
+
+```text
+https://status.robynshomelab.dev/status/homelab
+```
+
+Homepage integrates both monitoring systems.
+
+---
+
+## Homepage
+
+Homepage runs on CT107 at `192.168.20.92` using Docker and version 2.4.0.
+
+The dashboard includes:
+
+- Infrastructure
+- Network
+- Media
+- Gaming
+- Monitoring
+- Live Proxmox resource widgets
+- Beszel and Uptime Kuma integration
+- Direct GitHub repository widget
+- Custom background
+- Glass-style service cards
+- Responsive custom layout
+
+The GitHub widget links directly to `https://github.com/RobynTW/robyns-homelab`.
+
+See [`docs/17-homepage.md`](docs/17-homepage.md).
 
 ---
 
 ## Pterodactyl
 
-Pterodactyl runs on VM108 using:
+Pterodactyl runs on VM108 with Panel, Wings 1.13.3, Docker, MariaDB, Redis, and an independent NetBird peer.
 
-- Pterodactyl Panel
-- Wings
-- Docker
-- MariaDB
-- Redis
-
-Game-server storage is provided through the dedicated NFS `games` share.
-
-The Panel is accessed through:
+Panel:
 
 ```text
 https://panel.robynshomelab.dev
 ```
 
+Minecraft uses the permanent NetBird Reverse Proxy:
+
+```text
+minecraft.robynshomelab.dev:17161
+```
+
+No router port forwarding is used.
+
+---
+
+## Current Software Versions
+
+These are point-in-time versions observed in the deployed environment:
+
+| Component | Version |
+| --- | --- |
+| Proxmox VE | 9.2.2 |
+| Homepage | 2.4.0 |
+| NetBird | 0.78.1 |
+| Pterodactyl Wings | 1.13.3 |
+| Docker Engine on VM108 | 29.8.0 |
+| qBittorrent | 5.2.3 |
+| Bazarr+ | 2.6.2 |
+| Jellyfin | 10.11.11 |
+
+These are not claims about the latest upstream releases.
+
 ---
 
 ## Documentation
 
-Detailed documentation is organised numerically in [`docs/`](docs/):
+| File | Topic |
+| --- | --- |
+| `00-overview.md` | Overview |
+| `01-hardware.md` | Hardware |
+| `02-network.md` | Network |
+| `03-proxmox.md` | Proxmox |
+| `04-pihole.md` | Pi-hole |
+| `05-unbound.md` | Unbound |
+| `06-cloudflare.md` | Cloudflare |
+| `07-nginx.md` | Nginx |
+| `08-certbot.md` | Certbot |
+| `09-netbird.md` | NetBird |
+| `10-jellyfin.md` | Jellyfin |
+| `11-beszel.md` | Beszel |
+| `12-uptime-kuma.md` | Uptime Kuma |
+| `13-media-stack.md` | Media stack |
+| `14-pterodactyl.md` | Pterodactyl |
+| `15-ddns.md` | Dynamic DNS |
+| `16-gluetun-bazarr-plus.md` | Gluetun / Bazarr+ |
+| `17-homepage.md` | Homepage dashboard |
 
-| File                        | Topic                    |
-| --------------------------- | ------------------------ |
-| `00-overview.md`          | Overview                 |
-| `01-hardware.md`         | Hardware                 |
-| `02-network.md`          | Network                  |
-| `03-proxmox.md`          | Proxmox                  |
-| `04-pihole.md`           | Pi-hole                  |
-| `05-unbound.md`           | Unbound                  |
-| `06-cloudflare.md`       | Cloudflare               |
-| `07-nginx.md`            | Nginx                    |
-| `08-certbot.md`          | Certbot                  |
-| `09-netbird.md`          | NetBird                  |
-| `10-jellyfin.md`         | Jellyfin                 |
-| `11-beszel.md`           | Beszel                   |
-| `12-uptime-kuma.md`      | Uptime Kuma              |
-| `13-media-stack.md`      | Media stack              |
-| `14-pterodactyl.md`      | Pterodactyl              |
-| `15-ddns.md`             | Dynamic DNS              |
-| `16-gluetun-bazarr-plus.md` | Gluetun / Bazarr+       |
+AI continuity:
+
+- [`.ai-homelab-context.md`](.ai-homelab-context.md)
+- [`docs/ai-handover-2026-09-21.md`](docs/ai-handover-2026-09-21.md)
+- [`docs/ai-handover-2026-09-22.md`](docs/ai-handover-2026-09-22.md)
 
 ---
 
 ## Current Status
 
-The core homelab infrastructure is operational.
+Core infrastructure is operational.
 
-Remaining work primarily consists of:
+Recently completed:
+
+- Two-node Proxmox cluster
+- pve-2 4TB storage and NFS
+- Media stack and Bazarr+ migration
+- Pterodactyl Panel and Wings
+- Permanent NetBird Minecraft networking
+- Beszel monitoring expansion
+- Uptime Kuma status page
+- Homepage dashboard deployment and configuration pass
+
+Remaining work:
 
 - Firewall hardening
-- Monitoring expansion
+- Further monitoring expansion
 - Backup improvements
-- Additional service configuration
-- Stability testing
+- Remaining service configuration/cleanup
+- Extended stability testing
 
-Once the remaining work is complete and the environment has proven stable, the architecture diagram will be rebuilt to reflect the final topology.
+The architecture diagram will be rebuilt after the environment has demonstrated long-term stability.
 
 ---
 
 ## Security
 
-No passwords, API keys, tokens, certificates, or other secrets should be committed to this repository.
-
-This repository documents the infrastructure and configuration without exposing sensitive credentials.
+No passwords, API keys, tokens, certificates, private keys, or other secrets should be committed to this repository.
