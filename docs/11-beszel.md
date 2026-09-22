@@ -212,13 +212,13 @@ CT106 Nginx
 VM108 Pterodactyl
 ```
 
-The exact set of active Beszel agents should be treated as the deployed configuration rather than assuming every host above is currently monitored.
+The current deployed Beszel systems are Beszel, Jellyfin, NetBird, NGINX, Pi-Hole, PVE-1, PVE-2, Media Stack, Pterodactyl, and Uptime Kuma. PVE-2 also reports the `sdb1` filesystem.
 
 ---
 
 # Pterodactyl Monitoring
 
-VM108 is part of the homelab infrastructure but its Beszel monitoring is not yet considered fully configured.
+VM108 is represented in the current Beszel deployment as the Pterodactyl system.
 
 Future monitoring should cover:
 
@@ -522,3 +522,4 @@ Potential future improvements include:
 * Add monitoring for backup jobs
 
 Monitoring configuration should be updated here as additional hosts and services are deployed.
+\n\n---\n\n# Current Deployment Verification — 2026-09-22\n\nBeszel coverage was reviewed during the Homepage/dashboard phase. Homepage consumes Beszel alongside Uptime Kuma, while Beszel remains responsible for system/resource monitoring.\n
