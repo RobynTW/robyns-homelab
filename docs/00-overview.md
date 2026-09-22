@@ -553,6 +553,18 @@ The architecture will continue to evolve as these components are introduced.
 
 ---
 
+## Disaster Recovery and Rebuild
+
+The repository contains a rebuild-oriented configuration snapshot under [`config/`](../config/), collected from the live homelab on 2026-09-22 and pushed to Git.
+
+For a catastrophic failure, the intended recovery references are:
+
+1. **[`config/`](../config/)** — known-good rebuild configuration and sanitized templates.
+2. **[`docs/ai-handover-2026-09-22.md`](ai-handover-2026-09-22.md)** — AI continuity and rebuild handover containing the recovery procedure and current-state context.
+3. **Independent backups** — required for secrets, application databases, media, game worlds, Docker/application state, and other data not represented in Git.
+
+The AI handover is a recovery aid, not a substitute for independent data backups. After a rebuild, reconcile the live configuration back into `config/` and update the handover so the repository again represents the current known-good state.
+
 ## Documentation Philosophy
 
 Each major component should document:
