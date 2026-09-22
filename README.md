@@ -172,6 +172,14 @@ These are not claims about the latest upstream releases.
 
 ---
 
+## Disaster Recovery / Rebuild
+
+A rebuild-oriented configuration snapshot is maintained in [`config/`](config/). It contains the known-good system and service configuration needed to help recreate the current homelab without committing live secrets.
+
+In the event of a catastrophic failure, use the configuration snapshot together with the dated [AI handover](docs/ai-handover-2026-09-22.md). The handover records the current topology, important implementation details, what is intentionally excluded from Git, and a step-by-step approach for using the configuration copies during a rebuild.
+
+**Important:** this repository is not a complete backup of the homelab. Secrets, application databases, runtime state, media, game data, and other critical data require separate backups and secure storage.
+
 ## Documentation
 
 | File | Topic |
