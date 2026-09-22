@@ -204,7 +204,7 @@ Potential targets include:
 | Pterodactyl Panel    | `192.168.20.111:80`   |
 | Wings                | `192.168.20.111:8080` |
 
-The exact monitor list should be treated as the deployed configuration rather than assuming every endpoint above is currently configured.
+The monitor list in the running Kuma instance is the source of truth. A curated status page named `homelab` is currently published at `https://status.robynshomelab.dev/status/homelab`.
 
 ---
 
@@ -617,3 +617,4 @@ Potential future improvements include:
 * Monitoring of backup jobs
 
 Any newly deployed monitor should be documented here once it has been tested.
+\n\n---\n\n# Current Deployment Verification — 2026-09-22\n\nThe curated `homelab` status page is active and integrated into Homepage. Homepage links to the status page rather than duplicating the full monitor list.\n
