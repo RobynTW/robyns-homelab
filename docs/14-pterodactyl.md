@@ -871,6 +871,6 @@ Potential future Pterodactyl work includes:
 * Backup improvements for game-server data.
 * Firewall hardening.
 * Further testing of game-server access from external networks.
-* Integration with the eventual Homarr dashboard.
+* Integration with the eventual Homepage dashboard.
 
 The Minecraft networking implementation itself should now be considered **complete and stable**.
